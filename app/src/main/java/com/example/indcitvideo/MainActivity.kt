@@ -209,6 +209,7 @@ class MainActivity : ComponentActivity() {
         var frameRate: Float = 30f // Default frame rate if not available
         var totalDurationInMilliseconds = 0f
         var fontPath = findFirstSystemFontPath()
+        var fontSize = 96;
 
         try {
             context.contentResolver.openFileDescriptor(uri, "r")?.use { parcelFileDescriptor ->
@@ -238,6 +239,14 @@ class MainActivity : ComponentActivity() {
                 displayTimeFormat.timeZone = TimeZone.getDefault()
                 formattedTime =
                     originalCreationDate?.let { displayTimeFormat.format(it) } ?: "unknown"
+
+                // Calculate fontSize.
+                val height =
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                        ?.toIntOrNull() ?: 0
+                if (height != 0) {
+                    fontSize = (height * 0.04445).toInt()
+                }
             }
         } finally {
             retriever.release()
@@ -275,7 +284,7 @@ class MainActivity : ComponentActivity() {
             ffmpegCommand.append(" -to $it")
         }
         ffmpegCommand.append(
-            " -vf drawtext=fontfile=$fontPath:x=(w-tw)-10:y=(h-th)-10:fontcolor=white@1.0:fontsize=96:box=1:boxcolor=black@0.5:boxborderw=5:timecode=\\'$formattedTime\\:00\\':rate=$frameRate,drawtext=fontfile=$fontPath:text='$formattedDate':x=(w-tw)-text_w-40:y=(h-th)-10:fontcolor=white@1.0:fontsize=96:box=1:boxcolor=black@0.5:boxborderw=5 -c:v libx264 -an $outputFilePath"
+            " -vf drawtext=fontfile=$fontPath:x=(w-tw)-10:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5:timecode=\\'$formattedTime\\:00\\':rate=$frameRate,drawtext=fontfile=$fontPath:text='$formattedDate':x=(w-tw)-text_w-40:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5 -c:v libx264 -an $outputFilePath"
         )
 
         val executorService: ExecutorService = Executors.newSingleThreadExecutor()
