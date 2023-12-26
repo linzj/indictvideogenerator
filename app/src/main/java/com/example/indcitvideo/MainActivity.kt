@@ -254,20 +254,8 @@ class MainActivity : ComponentActivity() {
 
         // Register a new FFmpeg pipe
         // val pipePath = FFmpegKitConfig.registerNewFFmpegPipe(context)
-        val pipePath = createTempMp4FileInCacheDir(this)
-        // Copy the content from the uri
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            FileOutputStream(pipePath).use { outputStream ->
-                val buffer = ByteArray(1024 * 1024)
-                var bytesRead: Int
-                var bytesReadTotal: Int = 0
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    outputStream.write(buffer, 0, bytesRead)
-                    bytesReadTotal += bytesRead
-                }
-                Log.d(TAG, "finished reading $bytesReadTotal")
-            }
-        }
+        val inputFileManager = InputFileManager(context)
+        val pipePath = inputFileManager.getFileFromUri(uri)
 
         // Construct FFmpeg command
         val outputFilePath = buildOutputPath(context, uri);
@@ -287,12 +275,11 @@ class MainActivity : ComponentActivity() {
             " -vf drawtext=fontfile=$fontPath:x=(w-tw)-10:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5:timecode=\\'$formattedTime\\:00\\':rate=$frameRate,drawtext=fontfile=$fontPath:text='$formattedDate':x=(w-tw)-text_w-40:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5 -c:v libx264 -an $outputFilePath"
         )
 
-        val executorService: ExecutorService = Executors.newSingleThreadExecutor()
         // Execute FFmpeg command
         FFmpegKit.executeAsync(
             ffmpegCommand.toString(),
             FFmpegSessionCompleteCallback { session ->
-                pipePath.delete()
+                inputFileManager.finish()
                 // This callback is called when the execution is completed
                 val returnCode = session.returnCode
                 if (returnCode.isValueSuccess) {
@@ -309,7 +296,6 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     if (outputFilePath != null)
                         scanOutputFile(this, outputFilePath)
-                    executorService.shutdown()
                 }
             },
             // LogCallback
@@ -322,9 +308,7 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     viewModel.updateProgressWithStatistics(statistics, totalDurationInMilliseconds)
                 }
-            },
-            // ExecutorService
-            executorService
+            }
         )
 
         // Start a new thread to write data to the pipe
