@@ -20,6 +20,15 @@ android {
         }
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a") // Include only arm64-v8a ABI
+            isUniversalApk = false // Generate a separate APK per ABI
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
