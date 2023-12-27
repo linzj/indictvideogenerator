@@ -1,15 +1,8 @@
 package com.example.indcitvideo
 
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.MediaMetadataRetriever
-import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
-import android.provider.OpenableColumns
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,19 +29,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegSessionCompleteCallback
-import com.arthenica.ffmpegkit.LogCallback
-import com.arthenica.ffmpegkit.Statistics
-import com.arthenica.ffmpegkit.StatisticsCallback
 import com.example.indcitvideo.ui.theme.IndcitvideoTheme
-import java.io.File
-import java.text.SimpleDateFormat
-import java.time.LocalTime
-import java.time.temporal.ChronoUnit
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 
 
 class MainActivity : ComponentActivity() {
@@ -84,7 +65,18 @@ class MainActivity : ComponentActivity() {
                         if (viewModel.startTime.value == "00:00:00") null else viewModel.startTime.value
                     val stopTime: String? =
                         if (viewModel.stopTime.value == "00:00:00") null else viewModel.stopTime.value
-                    handleWork(this, uri, startTime, stopTime)
+                    val videoJobHandler: VideoJobHandler = FFmpegVideoJobHandler()
+                    videoJobHandler.handleWork(this, uri, startTime, stopTime, { outputFilePath ->
+                        viewModel.updateButtonEnable(true)
+                        if (outputFilePath != null)
+                            Utils.scanOutputFile(this, outputFilePath) {
+                                finish()
+                            }
+                    }, { action ->
+                        runOnUiThread(action)
+                    }, { currentProgress ->
+                        viewModel.updateProgressWithStatistics(currentProgress)
+                    })
                 }
             }
         }
@@ -112,228 +104,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun scanCameraOutputFile(context: Context) {
-        // Get the external storage DCIM/Camera directory
-        val cameraDir =
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM + "/Camera")
-
-        // Construct the full path to the output file within the Camera directory
-        val outputFile = File(cameraDir, "")
-
-        // Now we can scan the file
-        val intent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
-        val fileUri = Uri.fromFile(outputFile)
-        intent.data = fileUri
-        context.sendBroadcast(intent)
-    }
-
-    fun scanOutputFile(context: Context, newFileName: String) {
-        MediaScannerConnection.scanFile(
-            context, arrayOf(newFileName),
-            null
-        ) { path, uri ->
-            Log.i(TAG, "Scanned $path:")
-            Log.i(TAG, "-> uri=$uri")
-            Toast.makeText(this, "Finished converting to $newFileName", Toast.LENGTH_SHORT)
-                .show()
-            finish()
-            // Optionally, you can use the uri to open the file with an intent,
-            // if you want to view the video in your app or another app.
-        }
-    }
-
-    fun findFirstSystemFontPath(): String? {
-        return try {
-            val mapsFile = File("/proc/self/maps")
-            val lines = mapsFile.readLines()
-
-            lines.mapNotNull { line ->
-                val startIndex = line.indexOf("/system/fonts/")
-                if (startIndex != -1 && line.contains(".ttf")) {
-                    line.substring(startIndex).split(" ").firstOrNull()
-                } else {
-                    null
-                }
-            }.firstOrNull()
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null // Return null in case of an error or if no font path is found
-        }
-    }
-
-    fun buildOutputPath(context: Context, contentUri: Uri): String? {
-        // Use ContentResolver to get the file name from the Uri
-        val contentResolver = context.contentResolver
-
-        var fileNameWithoutExtension: String? = null
-        contentResolver.query(contentUri, null, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex != -1) {
-                    val fileName = cursor.getString(nameIndex)
-                    fileNameWithoutExtension = fileName.substringBeforeLast(".")
-                }
-            }
-        }
-
-        // If we couldn't get the file name, return null
-        if (fileNameWithoutExtension == null) return null
-
-        // Get the directory for the user's public pictures directory
-        val cameraDir =
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM + "/Camera")
-
-        // If the external storage directory is not available, return null
-        if (cameraDir == null || !cameraDir.exists() && !cameraDir.mkdirs()) return null
-
-        // Append "_indict" to the file name and the ".mp4" suffix
-        val outputFileName = "${fileNameWithoutExtension}_indict.mp4"
-
-        // Build the output path in the Camera directory
-        return File(cameraDir, outputFileName).absolutePath
-    }
-
-    fun adjustTotalTime(startTime: String?, stopTime: String?, totalTime: Long): Long {
-        val startTimeObj = startTime?.let { LocalTime.parse(it) }
-        val stopTimeObj = stopTime?.let { LocalTime.parse(it) }
-
-        var adjustedTotalTime = totalTime
-
-        // If both startTime and stopTime are not null, calculate the difference between them
-        if (startTimeObj != null && stopTimeObj != null) {
-            val duration = ChronoUnit.MILLIS.between(startTimeObj, stopTimeObj)
-            adjustedTotalTime = duration
-        } else {
-            // If only startTime is not null, subtract its time from totalTime
-            startTimeObj?.let {
-                val millis = it.toNanoOfDay() / 1000000
-                adjustedTotalTime -= millis
-            }
-            // If only stopTime is not null, subtract its time from totalTime
-            stopTimeObj?.let {
-                val millis = it.toNanoOfDay() / 1000000
-                adjustedTotalTime = millis
-            }
-        }
-
-        return adjustedTotalTime
-    }
-
-    private fun handleWork(context: Context, uri: Uri, startTime: String?, stopTime: String?) {
-        // Get video metadata
-        val retriever = MediaMetadataRetriever()
-        var formattedDate: String = "unknown" // To store the local date
-        var formattedTime: String = "unknown" // To store the local time
-        var frameRate: Float = 30f // Default frame rate if not available
-        var totalDurationInMilliseconds = 0L
-        var fontPath = findFirstSystemFontPath()
-        var fontSize = 96;
-
-        try {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { parcelFileDescriptor ->
-                retriever.setDataSource(parcelFileDescriptor.fileDescriptor)
-                val creationTime =
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)
-                frameRate =
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
-                        ?.toFloatOrNull() ?: 30f
-                totalDurationInMilliseconds =
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        ?.toLongOrNull() ?: 0L
-
-                // Parse and format creation time
-                val dateFormat = SimpleDateFormat("yyyyMMdd'T'HHmmss.SSS'Z'", Locale.US)
-                dateFormat.timeZone = TimeZone.getTimeZone("UTC")
-                val originalCreationDate: Date? = dateFormat.parse(creationTime)
-
-                // Format the Date object into local date string
-                val displayDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                displayDateFormat.timeZone = TimeZone.getDefault()
-                formattedDate =
-                    originalCreationDate?.let { displayDateFormat.format(it) } ?: "unknown"
-
-                // Format the Date object into local time string
-                val displayTimeFormat = SimpleDateFormat("HH\\:mm\\:ss", Locale.US)
-                displayTimeFormat.timeZone = TimeZone.getDefault()
-                formattedTime =
-                    originalCreationDate?.let { displayTimeFormat.format(it) } ?: "unknown"
-
-                // Calculate fontSize.
-                val height =
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                        ?.toIntOrNull() ?: 0
-                if (height != 0) {
-                    fontSize = (height * 0.04445).toInt()
-                }
-            }
-        } finally {
-            retriever.release()
-        }
-
-        totalDurationInMilliseconds =
-            adjustTotalTime(startTime, stopTime, totalDurationInMilliseconds);
-
-        // Register a new FFmpeg pipe
-        val inputFileManager = InputFileManager(context)
-        val inputString = inputFileManager.getInputString(uri)
-
-        // Construct FFmpeg command
-        val outputFilePath = buildOutputPath(context, uri);
-
-        val ffmpegCommand = StringBuilder("-y $inputString")
-
-        // Add -ss option for startTime if it's not null
-        startTime?.let {
-            ffmpegCommand.append(" -ss $it")
-        }
-
-        // Add -to option for stopTime if it's not null
-        stopTime?.let {
-            ffmpegCommand.append(" -to $it")
-        }
-        ffmpegCommand.append(
-            " -vf drawtext=fontfile=$fontPath:x=(w-tw)-10:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5:timecode=\\'$formattedTime\\:00\\':rate=$frameRate,drawtext=fontfile=$fontPath:text='$formattedDate':x=(w-tw)-text_w-40:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5 -c:v libx264 -an $outputFilePath"
-        )
-
-        // Execute FFmpeg command
-        FFmpegKit.executeAsync(
-            ffmpegCommand.toString(),
-            FFmpegSessionCompleteCallback { session ->
-                inputFileManager.finish()
-
-                // This callback is called when the execution is completed
-                val returnCode = session.returnCode
-                if (returnCode.isValueSuccess) {
-                    // Handle the successful completion of the command
-                    Log.d(TAG, "session complete success")
-                } else if (returnCode.isValueCancel) {
-                    // Handle the cancellation of the command
-                    Log.d(TAG, "session complete cancle")
-                } else {
-                    // Handle the error
-                    Log.d(TAG, "session complete error")
-                }
-                // Optionally shut down the executor service if it is no longer needed
-                runOnUiThread {
-                    viewModel.updateButtonEnable(true)
-                    if (outputFilePath != null)
-                        scanOutputFile(this, outputFilePath)
-                }
-            },
-            // LogCallback
-            LogCallback { log ->
-                // Handle log output if needed
-                Log.d(TAG, log.toString())
-            },
-            // StatisticsCallback
-            StatisticsCallback { statistics ->
-                runOnUiThread {
-                    viewModel.updateProgressWithStatistics(statistics, totalDurationInMilliseconds)
-                }
-            }
-        )
-    }
 
     private fun hasReadExternalStoragePermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -351,7 +121,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openVideoPicker() {
-        scanCameraOutputFile(this);
+        Utils.scanCameraOutputFile(this);
         pickVideoLauncher.launch("video/*")
     }
 
@@ -393,9 +163,9 @@ class FFmpegViewModel : ViewModel() {
     private val _stopTime = MutableLiveData<String?>("00:00:00")
     val stopTime: LiveData<String?> = _stopTime
 
-    fun updateProgressWithStatistics(statistics: Statistics, totalDurationInMilliseconds: Long) {
+    fun updateProgressWithStatistics(currentProgress: Float) {
         // TODO: Calculate the progress and update the LiveData
-        val currentProgress = (statistics.time.toDouble() / totalDurationInMilliseconds).toFloat()
+
         _progress.value = currentProgress.coerceIn(0f, 1f)
     }
 
