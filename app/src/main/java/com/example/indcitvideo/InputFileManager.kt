@@ -3,26 +3,26 @@ package com.example.indcitvideo
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 
 class InputFileManager(private val context: Context) {
     private var tempFile: File? = null
+    private var fd: Int? = null;
 
     companion object {
         private const val TAG = "LINZJ"
     }
 
-    fun getFileFromUri(uri: Uri): File {
+    fun getInputString(uri: Uri): String {
         // Try to get file path from URI
-        val file = getFileFromUri(context, uri)
-        if (file != null) {
-            if (file.exists() && file.canRead()) {
-                return file
-            }
-        }
+        fd = context.contentResolver.openFileDescriptor(uri, "r")?.detachFd();
+        if (fd != null)
+            return "-fd $fd -i fd:";
 
         // Fall back to creating a temporary file if the above method fails
         val _tempFile = createTempMp4FileInCacheDir(context)
@@ -40,10 +40,10 @@ class InputFileManager(private val context: Context) {
                 Log.d(TAG, "finished reading $bytesReadTotal")
             }
         }
-        return _tempFile
+        return "-i $_tempFile"
     }
 
-    private fun getFileFromUri(context: Context, uri: Uri): File? {
+    private fun getInputString(context: Context, uri: Uri): File? {
         val contentResolver = context.contentResolver
         val projection = arrayOf(
             MediaStore.MediaColumns.DISPLAY_NAME
@@ -77,6 +77,15 @@ class InputFileManager(private val context: Context) {
     }
 
     fun finish() {
+        try {
+            fd?.let { fd ->
+                val pfd = ParcelFileDescriptor.adoptFd(fd)
+                pfd.close()
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+
         // Delete the temp file if it was created
         tempFile?.delete()
     }

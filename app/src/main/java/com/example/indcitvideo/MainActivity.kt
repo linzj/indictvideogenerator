@@ -18,13 +18,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
@@ -43,13 +43,12 @@ import com.arthenica.ffmpegkit.Statistics
 import com.arthenica.ffmpegkit.StatisticsCallback
 import com.example.indcitvideo.ui.theme.IndcitvideoTheme
 import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 
 class MainActivity : ComponentActivity() {
@@ -80,7 +79,12 @@ class MainActivity : ComponentActivity() {
                         Toast.LENGTH_SHORT
                     )
                         .show()
-                    handleWork(this, uri, viewModel.startTime.value, viewModel.stopTime.value)
+                    viewModel.updateButtonEnable(false)
+                    val startTime: String? =
+                        if (viewModel.startTime.value == "00:00:00") null else viewModel.startTime.value
+                    val stopTime: String? =
+                        if (viewModel.stopTime.value == "00:00:00") null else viewModel.stopTime.value
+                    handleWork(this, uri, startTime, stopTime)
                 }
             }
         }
@@ -190,15 +194,30 @@ class MainActivity : ComponentActivity() {
         return File(cameraDir, outputFileName).absolutePath
     }
 
-    fun createTempMp4FileInCacheDir(context: Context): File {
-        val prefix = "temp_video_"
-        val suffix = ".mp4"
-        val cacheDir = context.cacheDir // Get the cache directory of your app
+    fun adjustTotalTime(startTime: String?, stopTime: String?, totalTime: Long): Long {
+        val startTimeObj = startTime?.let { LocalTime.parse(it) }
+        val stopTimeObj = stopTime?.let { LocalTime.parse(it) }
 
-        // Create a temp file in the specified directory
-        val tempFile = File.createTempFile(prefix, suffix, cacheDir)
+        var adjustedTotalTime = totalTime
 
-        return tempFile
+        // If both startTime and stopTime are not null, calculate the difference between them
+        if (startTimeObj != null && stopTimeObj != null) {
+            val duration = ChronoUnit.MILLIS.between(startTimeObj, stopTimeObj)
+            adjustedTotalTime = duration
+        } else {
+            // If only startTime is not null, subtract its time from totalTime
+            startTimeObj?.let {
+                val millis = it.toNanoOfDay() / 1000000
+                adjustedTotalTime -= millis
+            }
+            // If only stopTime is not null, subtract its time from totalTime
+            stopTimeObj?.let {
+                val millis = it.toNanoOfDay() / 1000000
+                adjustedTotalTime = millis
+            }
+        }
+
+        return adjustedTotalTime
     }
 
     private fun handleWork(context: Context, uri: Uri, startTime: String?, stopTime: String?) {
@@ -207,7 +226,7 @@ class MainActivity : ComponentActivity() {
         var formattedDate: String = "unknown" // To store the local date
         var formattedTime: String = "unknown" // To store the local time
         var frameRate: Float = 30f // Default frame rate if not available
-        var totalDurationInMilliseconds = 0f
+        var totalDurationInMilliseconds = 0L
         var fontPath = findFirstSystemFontPath()
         var fontSize = 96;
 
@@ -221,7 +240,7 @@ class MainActivity : ComponentActivity() {
                         ?.toFloatOrNull() ?: 30f
                 totalDurationInMilliseconds =
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        ?.toFloatOrNull() ?: 0f
+                        ?.toLongOrNull() ?: 0L
 
                 // Parse and format creation time
                 val dateFormat = SimpleDateFormat("yyyyMMdd'T'HHmmss.SSS'Z'", Locale.US)
@@ -252,15 +271,17 @@ class MainActivity : ComponentActivity() {
             retriever.release()
         }
 
+        totalDurationInMilliseconds =
+            adjustTotalTime(startTime, stopTime, totalDurationInMilliseconds);
+
         // Register a new FFmpeg pipe
-        // val pipePath = FFmpegKitConfig.registerNewFFmpegPipe(context)
         val inputFileManager = InputFileManager(context)
-        val pipePath = inputFileManager.getFileFromUri(uri)
+        val inputString = inputFileManager.getInputString(uri)
 
         // Construct FFmpeg command
         val outputFilePath = buildOutputPath(context, uri);
 
-        val ffmpegCommand = StringBuilder("-y -f mp4 -i $pipePath")
+        val ffmpegCommand = StringBuilder("-y $inputString")
 
         // Add -ss option for startTime if it's not null
         startTime?.let {
@@ -280,6 +301,7 @@ class MainActivity : ComponentActivity() {
             ffmpegCommand.toString(),
             FFmpegSessionCompleteCallback { session ->
                 inputFileManager.finish()
+
                 // This callback is called when the execution is completed
                 val returnCode = session.returnCode
                 if (returnCode.isValueSuccess) {
@@ -294,6 +316,7 @@ class MainActivity : ComponentActivity() {
                 }
                 // Optionally shut down the executor service if it is no longer needed
                 runOnUiThread {
+                    viewModel.updateButtonEnable(true)
                     if (outputFilePath != null)
                         scanOutputFile(this, outputFilePath)
                 }
@@ -310,24 +333,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         )
-
-        // Start a new thread to write data to the pipe
-        // Thread {
-        //     context.contentResolver.openInputStream(uri)?.use { inputStream ->
-        //         FileOutputStream(pipePath).use { outputStream ->
-        //             val buffer = ByteArray(1024 * 1024)
-        //             var bytesRead: Int
-        //             var bytesReadTotal: Int = 0
-        //             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-        //                 outputStream.write(buffer, 0, bytesRead)
-        //                 bytesReadTotal += bytesRead
-        //             }
-        //             Log.d(TAG, "finished reading $bytesReadTotal")
-        //         }
-        //     }
-        //     // Close the pipe to indicate to FFmpeg that no more data will be written
-        //     FFmpegKitConfig.closeFFmpegPipe(pipePath)
-        // }.start()
     }
 
     private fun hasReadExternalStoragePermission(): Boolean {
@@ -346,13 +351,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openVideoPicker() {
-        // scanCameraOutputFile(this);
+        scanCameraOutputFile(this);
         pickVideoLauncher.launch("video/*")
-//        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-//            type = "video/*"
-//            addCategory(Intent.CATEGORY_OPENABLE)
-//        }
-//        startActivityForResult(intent, REQUEST_VIDEO_FILE)
     }
 
     override fun onRequestPermissionsResult(
@@ -383,14 +383,17 @@ class FFmpegViewModel : ViewModel() {
     private val _progress = MutableLiveData(0f)
     val progress: LiveData<Float> = _progress
 
+    private val _buttonEnabled = MutableLiveData(true)
+    val buttonEnabled: LiveData<Boolean> = _buttonEnabled
+
     // Mutable live data for start and stop times
-    private val _startTime = MutableLiveData<String?>()
+    private val _startTime = MutableLiveData<String?>("00:00:00")
     val startTime: LiveData<String?> = _startTime
 
-    private val _stopTime = MutableLiveData<String?>()
+    private val _stopTime = MutableLiveData<String?>("00:00:00")
     val stopTime: LiveData<String?> = _stopTime
 
-    fun updateProgressWithStatistics(statistics: Statistics, totalDurationInMilliseconds: Float) {
+    fun updateProgressWithStatistics(statistics: Statistics, totalDurationInMilliseconds: Long) {
         // TODO: Calculate the progress and update the LiveData
         val currentProgress = (statistics.time.toDouble() / totalDurationInMilliseconds).toFloat()
         _progress.value = currentProgress.coerceIn(0f, 1f)
@@ -403,6 +406,10 @@ class FFmpegViewModel : ViewModel() {
 
     fun updateStopTime(time: String?) {
         _stopTime.value = time
+    }
+
+    fun updateButtonEnable(enabled: Boolean) {
+        _buttonEnabled.value = enabled;
     }
 }
 
@@ -417,12 +424,13 @@ fun FFmpegProgressView(
     val progress by viewModel.progress.observeAsState(0f)
     val startTime by viewModel.startTime.observeAsState("")
     val stopTime by viewModel.stopTime.observeAsState("")
+    val buttonEnabled by viewModel.buttonEnabled.observeAsState(true);
 
     Column(modifier = modifier) {
         Text(text = "Hello FFmpeg!")
         LinearProgressIndicator(progress = progress)
         Spacer(modifier = Modifier.height(8.dp)) // Add some space between the progress bar and the button
-        Button(onClick = onButtonClick) {
+        Button(onClick = onButtonClick, enabled = buttonEnabled) {
             Text(text = "Click Me")
         }
 
