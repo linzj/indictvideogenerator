@@ -9,6 +9,8 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
 import java.io.File
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 
 class Utils {
     companion object {
@@ -80,6 +82,40 @@ class Utils {
 
             // Build the output path in the Camera directory
             return File(cameraDir, outputFileName).absolutePath
+        }
+
+        fun adjustTotalTime(startTime: String?, stopTime: String?, totalTime: Long): Long {
+            val startTimeObj = startTime?.let { LocalTime.parse(it) }
+            val stopTimeObj = stopTime?.let { LocalTime.parse(it) }
+
+            var adjustedTotalTime = totalTime
+
+            // If both startTime and stopTime are not null, calculate the difference between them
+            if (startTimeObj != null && stopTimeObj != null) {
+                val duration = ChronoUnit.MILLIS.between(startTimeObj, stopTimeObj)
+                adjustedTotalTime = duration
+            } else {
+                // If only startTime is not null, subtract its time from totalTime
+                startTimeObj?.let {
+                    val millis = it.toNanoOfDay() / 1000000
+                    adjustedTotalTime -= millis
+                }
+                // If only stopTime is not null, subtract its time from totalTime
+                stopTimeObj?.let {
+                    val millis = it.toNanoOfDay() / 1000000
+                    adjustedTotalTime = millis
+                }
+            }
+
+            return adjustedTotalTime
+        }
+
+        fun timeStringToMills(timeString: String?): Long? {
+            val startTimeObj = timeString?.let { LocalTime.parse(it) }
+            val mills = startTimeObj?.let {
+                it.toNanoOfDay() / 1000000
+            }
+            return mills
         }
     }
 }

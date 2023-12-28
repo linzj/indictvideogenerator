@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val viewModel = FFmpegViewModel()
+    private var useHardware = false
 
     // Create a launcher with the GetContent contract for picking a video
     private val pickVideoLauncher =
@@ -65,7 +66,8 @@ class MainActivity : ComponentActivity() {
                         if (viewModel.startTime.value == "00:00:00") null else viewModel.startTime.value
                     val stopTime: String? =
                         if (viewModel.stopTime.value == "00:00:00") null else viewModel.stopTime.value
-                    val videoJobHandler: VideoJobHandler = FFmpegVideoJobHandler()
+                    val videoJobHandler: VideoJobHandler =
+                        if (!useHardware) FFmpegVideoJobHandler() else HardwareVideoJobHandler()
                     videoJobHandler.handleWork(this, uri, startTime, stopTime, { outputFilePath ->
                         viewModel.updateButtonEnable(true)
                         if (outputFilePath != null)
@@ -93,6 +95,15 @@ class MainActivity : ComponentActivity() {
                     // Greeting("Android")
                     FFmpegProgressView(viewModel,
                         onButtonClick = {
+                            useHardware = false
+                            if (hasReadExternalStoragePermission()) {
+                                openVideoPicker()
+                            } else {
+                                requestReadExternalStoragePermission()
+                            }
+                        },
+                        onSecondButtonClick = {
+                            useHardware = true
                             if (hasReadExternalStoragePermission()) {
                                 openVideoPicker()
                             } else {
@@ -188,7 +199,8 @@ class FFmpegViewModel : ViewModel() {
 fun FFmpegProgressView(
     viewModel: FFmpegViewModel, // Pass the viewModel into the composable
     modifier: Modifier = Modifier,
-    onButtonClick: () -> Unit
+    onButtonClick: () -> Unit,
+    onSecondButtonClick: () -> Unit
 ) {
     // Observe LiveData and convert it to State using the collectAsState() function
     val progress by viewModel.progress.observeAsState(0f)
@@ -201,7 +213,10 @@ fun FFmpegProgressView(
         LinearProgressIndicator(progress = progress)
         Spacer(modifier = Modifier.height(8.dp)) // Add some space between the progress bar and the button
         Button(onClick = onButtonClick, enabled = buttonEnabled) {
-            Text(text = "Click Me")
+            Text(text = "Start with ffmpeg")
+        }
+        Button(onClick = onSecondButtonClick, enabled = buttonEnabled) {
+            Text(text = "Start with hardware")
         }
 
         // Use the observed states for the TextField values
