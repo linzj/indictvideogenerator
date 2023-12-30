@@ -1,11 +1,7 @@
 package com.example.indcitvideo
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.graphics.SurfaceTexture
-import android.graphics.Typeface
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecInfo.CodecCapabilities
@@ -20,14 +16,11 @@ import android.opengl.EGLConfig
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
-import android.opengl.GLES11Ext
 import android.opengl.GLES20
-import android.opengl.GLUtils
 import android.view.Surface
 import java.io.FileDescriptor
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -61,100 +54,17 @@ class HardwareVideoJobWorker(
     private var mFrameAvailable: Boolean = false
     private lateinit var shaderProgramNormal: ShaderProgramComponent
     private lateinit var shaderProgramExternalTexture: ShaderProgramComponent
+    private lateinit var videoTextureDrawer: VideoTextureDrawer
 
     private var width: Int = 0
     private var height: Int = 0
     private var bitRate: Int = 0
     private var frameRate: Int = 0
 
+    private val bottomLineAccountor = BottomLineAccountor()
+    private var drawers: Array<Drawer>? = null
 
     companion object {
-        const val VERTEX_SHADER_CODE = """
-    attribute vec4 aPosition;
-    attribute vec2 aTexCoord;
-    varying vec2 vTexCoord;
-    uniform mat4 uMVPMatrix;
-    uniform mat4 uTexMatrix;
-
-    void main() {
-        vTexCoord = (uTexMatrix * vec4(aTexCoord, 0.0, 1.0)).xy;
-        gl_Position = uMVPMatrix * aPosition;
-    }
-"""
-
-        const val FRAGMENT_SHADER_CODE_EXTERNAL_TEXTRUE = """
-    #extension GL_OES_EGL_image_external : require
-    precision mediump float;
-    varying vec2 vTexCoord;
-    uniform samplerExternalOES uTexture;
-
-    void main() {
-        gl_FragColor = texture2D(uTexture, vTexCoord);
-    }
-"""
-
-        const val FRAGMENT_SHADER_CODE = """
-    precision mediump float;
-    varying vec2 vTexCoord;
-    uniform sampler2D uTexture;
-
-    void main() {
-        gl_FragColor = texture2D(uTexture, vTexCoord);
-    }
-"""
-
-        val quadVertices = floatArrayOf(
-            // X, Y, Z
-            -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f
-        )
-
-        val quadTexCoordsExternal = floatArrayOf(
-            // U, V
-            0.0f, 0.0f,
-            1.0f, 0.0f,
-            0.0f, 1.0f,
-            1.0f, 1.0f,
-        )
-
-        val quadTexCoords = floatArrayOf(
-            // U, V
-            0.0f, 1.0f,
-            1.0f, 1.0f,
-            0.0f, 0.0f,
-            1.0f, 0.0f,
-        )
-
-
-        val identityMatrix = floatArrayOf(
-            1f, 0f, 0f, 0f, // Column 1
-            0f, 1f, 0f, 0f, // Column 2
-            0f, 0f, 1f, 0f, // Column 3
-            0f, 0f, 0f, 1f  // Column 4
-        )
-
-        val vertexBuffer: FloatBuffer =
-            ByteBuffer.allocateDirect(quadVertices.size * 4).order(ByteOrder.nativeOrder())
-                .asFloatBuffer().apply {
-                    put(quadVertices)
-                    position(0)
-                }
-
-        val texCoordBufferExternal: FloatBuffer =
-            ByteBuffer.allocateDirect(quadTexCoordsExternal.size * 4).order(ByteOrder.nativeOrder())
-                .asFloatBuffer().apply {
-                    put(quadTexCoordsExternal)
-                    position(0)
-                }
-
-        val texCoordBuffer: FloatBuffer =
-            ByteBuffer.allocateDirect(quadTexCoords.size * 4).order(ByteOrder.nativeOrder())
-                .asFloatBuffer().apply {
-                    put(quadTexCoords)
-                    position(0)
-                }
-
-        var textureWidth = 256
-        const val textureHeight = 64
         const val timeoutUs = 1000L
         fun getRecommendedBitrate(width: Int, height: Int): Int {
             // These are approximate bitrates for H.264 standard quality
@@ -179,26 +89,6 @@ class HardwareVideoJobWorker(
                 pixels >= 640 * 360 -> bitrateHighQuality360p
                 else -> bitrateHighQuality240p
             }
-        }
-
-        fun checkGLError(op: String) {
-            var error: Int
-            while (GLES20.glGetError().also { error = it } != GLES20.GL_NO_ERROR) {
-                val msg = op + ": glError " + Integer.toHexString(error)
-                Utils.logD(msg)
-                throw java.lang.RuntimeException(msg)
-            }
-        }
-
-        fun measureTextWidth(text: String): Float {
-            val paint = Paint().apply {
-                color = android.graphics.Color.WHITE
-                textSize = textureHeight.toFloat()
-                isAntiAlias = true
-                typeface = Typeface.MONOSPACE
-            }
-            // Measure the text
-            return paint.measureText(text)
         }
     }
 
@@ -439,223 +329,13 @@ class HardwareVideoJobWorker(
 
     private val mFrameSyncObject = Any()
 
-    private fun loadShader(type: Int, shaderCode: String): Int {
-        // Create a new shader object
-        val shader = GLES20.glCreateShader(type)
-        if (shader == 0) {
-            throw RuntimeException("Error creating shader.")
-        }
-
-        // Set the source code for the shader and compile it
-        GLES20.glShaderSource(shader, shaderCode)
-        GLES20.glCompileShader(shader)
-
-        // Check if the shader compiled successfully
-        val compileStatus = IntArray(1)
-        GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compileStatus, 0)
-        if (compileStatus[0] == 0) {
-            val error = GLES20.glGetShaderInfoLog(shader)
-            GLES20.glDeleteShader(shader)
-            throw RuntimeException("Error compiling shader: $error")
-        }
-
-        return shader
+    fun prepareDrawers() {
+        videoTextureDrawer = VideoTextureDrawer()
+        val dateTimeDrawer = DateTimeDrawer(creationTime, bottomLineAccountor, width, height)
+        drawers = arrayOf(videoTextureDrawer, dateTimeDrawer)
+        drawers?.forEach { drawer -> drawer.preapreResources() }
     }
 
-    private fun loadShaderProgram(
-        vertexShaderCode: String,
-        fragmentShaderCode: String,
-        textureTarget: Int,
-        vertexBuffer: FloatBuffer,
-        texCoordBuffer: FloatBuffer
-    ): ShaderProgramComponent {
-        val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexShaderCode)
-        val fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCode)
-
-        val shaderProgram = GLES20.glCreateProgram().also {
-            checkGLError("After glCreateProgram")
-            GLES20.glAttachShader(it, vertexShader)
-            checkGLError("After glAttachShader vertex")
-            GLES20.glAttachShader(it, fragmentShader)
-            checkGLError("After glAttachShader fragment")
-            GLES20.glLinkProgram(it)
-            checkGLError("After linkprogram")
-        }
-
-        val positionHandle = GLES20.glGetAttribLocation(shaderProgram, "aPosition")
-        checkGLError("After get position vertex attrib")
-        val texCoordHandle = GLES20.glGetAttribLocation(shaderProgram, "aTexCoord")
-        checkGLError("After get position texcoord attrib")
-        val mvpMatrixHandle =
-            GLES20.glGetUniformLocation(shaderProgram, "uMVPMatrix")
-        checkGLError("After get position mvp uniform")
-        val texMatrixHandle =
-            GLES20.glGetUniformLocation(shaderProgram, "uTexMatrix")
-        checkGLError("After get position texmatrix uniform")
-        val textureHandle = GLES20.glGetUniformLocation(shaderProgram, "uTexture")
-        checkGLError("After get position texturehandle uniform")
-        return ShaderProgramComponent(
-            shaderProgram,
-            positionHandle,
-            texCoordHandle,
-            mvpMatrixHandle,
-            texMatrixHandle,
-            textureHandle,
-            textureTarget,
-            vertexBuffer,
-            texCoordBuffer,
-        )
-
-    }
-
-    fun prepareShaderProgram() {
-        shaderProgramExternalTexture = loadShaderProgram(
-            VERTEX_SHADER_CODE,
-            FRAGMENT_SHADER_CODE_EXTERNAL_TEXTRUE,
-            GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-            vertexBuffer,
-            texCoordBufferExternal
-        )
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-        textureWidth = measureTextWidth(dateFormat.format(creationTime)).toInt()
-        val vertexCoordForText = calculateTextureVertex(width, height, textureWidth, textureHeight)
-        val vertexCoordBufferForText =
-            ByteBuffer.allocateDirect(vertexCoordForText.size * 4).order(ByteOrder.nativeOrder())
-                .asFloatBuffer().apply {
-                    put(vertexCoordForText)
-                    position(0)
-                }
-        shaderProgramNormal = loadShaderProgram(
-            VERTEX_SHADER_CODE,
-            FRAGMENT_SHADER_CODE,
-            GLES20.GL_TEXTURE_2D,
-            vertexCoordBufferForText,
-            texCoordBuffer
-        )
-    }
-
-    fun drawTexture(
-        shaderProgram: ShaderProgramComponent,
-        textureId: Int,
-        mvpMatrix: FloatArray,
-        transformMatrix: FloatArray
-    ) {
-        // Use the shader program
-        GLES20.glUseProgram(shaderProgram.shaderProgram)
-        checkGLError("After UseProgram")
-
-        // Pass in the vertex data
-        shaderProgram.vertexBuffer.position(0)
-        GLES20.glVertexAttribPointer(
-            shaderProgram.positionHandle, 3, GLES20.GL_FLOAT, false, 0, shaderProgram.vertexBuffer
-        )
-        checkGLError("After set vertex attrib for position")
-        GLES20.glEnableVertexAttribArray(shaderProgram.positionHandle)
-        checkGLError("After set enable vertex attrib for position")
-
-        // Pass in the texture coordinate data
-        shaderProgram.texCoordBuffer.position(0)
-        GLES20.glVertexAttribPointer(
-            shaderProgram.texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, shaderProgram.texCoordBuffer
-        )
-        checkGLError("After set texcoord attrib")
-        GLES20.glEnableVertexAttribArray(shaderProgram.texCoordHandle)
-        checkGLError("After enable  texcoord attrib")
-
-        // Set the active texture unit to texture unit 0
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        checkGLError("After active texture")
-
-        // Bind the texture to this unit
-        GLES20.glBindTexture(shaderProgram.textureTarget, textureId)
-        checkGLError("After bind texture to target ${shaderProgram.textureTarget}")
-        GLES20.glUniform1i(shaderProgram.textureHandle, 0)
-        checkGLError("After set texture handle to uniform, target ${shaderProgram.textureTarget}, texture handle: ${shaderProgram.textureHandle}")
-
-        GLES20.glUniformMatrix4fv(shaderProgram.mvpMatrixHandle, 1, false, mvpMatrix, 0)
-        checkGLError("After set mvp data to uniform")
-
-        // Apply the texture transformation matrix
-        GLES20.glUniformMatrix4fv(shaderProgram.texMatrixHandle, 1, false, transformMatrix, 0)
-        checkGLError("After set tex matrix data to uniform")
-
-        // Draw the quad
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        checkGLError("After draw array")
-
-        // Disable vertex array
-        GLES20.glDisableVertexAttribArray(shaderProgram.positionHandle)
-        checkGLError("After disable position attrib")
-        GLES20.glDisableVertexAttribArray(shaderProgram.texCoordHandle)
-        checkGLError("After disable texcoord attrib")
-        GLES20.glBindTexture(shaderProgram.textureTarget, 0)
-        checkGLError("After bind texture ${shaderProgram.textureTarget} to 0")
-        GLES20.glUseProgram(0)
-        checkGLError("After use program to 0")
-    }
-
-    private fun calculateTextureVertex(
-        surfaceWidth: Int, surfaceHeight: Int, textureWidth: Int, textureHeight: Int
-    ): FloatArray {
-        val textureWidthNormalized = textureWidth.toFloat() / surfaceWidth
-        val textureHeightNormalized = textureHeight.toFloat() / surfaceHeight
-
-        // Calculate the right and top positions
-        val right = 1.0f
-        val bottom = -1.0f
-
-        val quadVertices = floatArrayOf(
-            // Since OpenGL's default coordinates range from -1 to 1, we have to normalize our texture size accordingly
-            right - textureWidthNormalized * 2.0f,
-            bottom,
-            0.0f, // Bottom-left corner
-            right,
-            bottom,
-            0.0f, // Bottom-right corner
-            right - textureWidthNormalized * 2.0f,
-            bottom + textureHeightNormalized * 2.0f,
-            0.0f, // Top-left corner
-            right,
-            bottom + textureHeightNormalized * 2.0f,
-            0.0f, // Top-right corner
-
-        )
-        return quadVertices
-    }
-
-    private fun prepareDateTimeTexture(): Int {
-        val textBitmap = Bitmap.createBitmap(textureWidth, textureHeight, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(textBitmap)
-        val paint = Paint().apply {
-            color = android.graphics.Color.WHITE
-            textSize = textureHeight.toFloat()
-            isAntiAlias = true
-            typeface = Typeface.MONOSPACE
-        }
-
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-        // Draw the date onto the Bitmap
-        canvas.drawColor(android.graphics.Color.TRANSPARENT)
-        canvas.drawText(dateFormat.format(creationTime), 0f, paint.textSize, paint)
-        // Generate a new OpenGL texture
-        val textureIds = IntArray(1)
-        GLES20.glGenTextures(1, textureIds, 0)
-        checkGLError("After gen textures for datetime")
-        val textTextureId = textureIds[0]
-
-        // Bind the texture and load the Bitmap data
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textTextureId)
-        checkGLError("After bind texture for datetime")
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, textBitmap, 0)
-        checkGLError("After upload texture for datetime")
-
-        // Set texture parameters
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-        checkGLError("After set min filter for datetime")
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-        checkGLError("After set mag filter for datetime")
-        return textTextureId
-    }
 
     private fun updateCreationTime() {
         // Increase the creation time by the time per frame
@@ -742,36 +422,20 @@ class HardwareVideoJobWorker(
                         decodedFrameCount++;
                         // skip render if not reach startFrame
                         GLES20.glViewport(0, 0, width, height)
-                        checkGLError("After set view port")
-                        GLES20.glBindTexture(
-                            shaderProgramExternalTexture.textureTarget,
-                            externalTextureId
-                        )
-                        checkGLError("After bind texture for surfaceTexture")
+                        Utils.checkGLError("After set view port")
                         surfaceTexture.updateTexImage()
-                        checkGLError("After surfacetexture updateTexImage")
+                        Utils.checkGLError("After surfacetexture updateTexImage")
                         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-                        // Enable blending
-                        GLES20.glEnable(GLES20.GL_BLEND)
-                        // Set the blending function
-                        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-                        checkGLError("After clear color")
+                        Utils.checkGLError("After clear color")
                         val transformMatrix = FloatArray(16)
                         surfaceTexture.getTransformMatrix(transformMatrix)
-                        drawExternalTexture(externalTextureId, identityMatrix, transformMatrix);
-                        checkGLError("After draw external texture")
-                        // drawing water mark
-                        val dateTimeFormatTex = prepareDateTimeTexture()
-                        checkGLError("After prepareDatetimeTexture")
-                        drawTexture(
-                            shaderProgramNormal,
-                            dateTimeFormatTex,
-                            identityMatrix,
-                            identityMatrix
-                        )
-                        checkGLError("After draw datetime texture ")
-                        releaseResources(dateTimeFormatTex)
-                        checkGLError("After releaseResources")
+                        // update video texture drawer.
+                        videoTextureDrawer.updateExternalTextureId(externalTextureId)
+                        videoTextureDrawer.updateTransformMatrix(transformMatrix)
+                        drawers?.forEach { drawer ->
+                            drawer.draw()
+                        }
+                        Utils.checkGLError("After draws ")
                         EGL14.eglSwapBuffers(eglDisplay, eglSurface)
                         updateCreationTime()
                     } else {
@@ -843,19 +507,6 @@ class HardwareVideoJobWorker(
         encoder.stop()
         if (videoTrackIndex != -1)
             muxer.stop()
-    }
-
-    private fun releaseResources(dateTimeFormatTex: Int) {
-        val textureIds = intArrayOf(dateTimeFormatTex)
-        GLES20.glDeleteTextures(1, textureIds, 0)
-    }
-
-    private fun drawExternalTexture(
-        externalTextureId: Int, identityMatrix: FloatArray, transformMatrix: FloatArray
-    ) {
-        drawTexture(
-            shaderProgramExternalTexture, externalTextureId, identityMatrix, transformMatrix
-        );
     }
 
     fun createMutexer(outputFilePath: String, encoder: MediaCodec): MediaMuxer {
@@ -943,7 +594,7 @@ class HardwareVideoJobHandler : VideoJobHandler {
                 eglDisplay = neweglDisplay
                 eglSurface = neweglSurface
                 eglContext = neweglContext
-                worker.prepareShaderProgram()
+                worker.prepareDrawers()
                 val muxer = worker.createMutexer(outputFilePath, encoder)
                 muxerToRelease = muxer
                 worker.process(

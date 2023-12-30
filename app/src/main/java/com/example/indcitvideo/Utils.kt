@@ -2,8 +2,11 @@ package com.example.indcitvideo
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.media.MediaScannerConnection
 import android.net.Uri
+import android.opengl.GLES20
 import android.os.Environment
 import android.provider.OpenableColumns
 import android.util.Log
@@ -116,6 +119,15 @@ class Utils {
                 it.toNanoOfDay() / 1000000
             }
             return mills
+        }
+
+        fun checkGLError(op: String) {
+            var error: Int
+            while (GLES20.glGetError().also { error = it } != GLES20.GL_NO_ERROR) {
+                val msg = op + ": glError " + Integer.toHexString(error)
+                Utils.logD(msg)
+                throw java.lang.RuntimeException(msg)
+            }
         }
     }
 }
