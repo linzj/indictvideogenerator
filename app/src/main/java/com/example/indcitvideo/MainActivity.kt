@@ -1,5 +1,7 @@
 package com.example.indcitvideo
 
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -44,41 +46,52 @@ class MainActivity : ComponentActivity() {
 
     // Create a launcher with the GetContent contract for picking a video
     private val pickVideoLauncher =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-            if (uri != null) {
-                // Handle the selected video URI
-                val validator = TimeFormatValidator()
-                if (!validator.testTimeFormat(viewModel.startTime.value) || !validator.testTimeFormat(
-                        viewModel.stopTime.value
-                    )
-                ) {
-                    Toast.makeText(this, "Time not in the correct format", Toast.LENGTH_SHORT)
-                        .show()
-                } else {
-                    Toast.makeText(
-                        this,
-                        "FFMpeg processing started, be patient",
-                        Toast.LENGTH_SHORT
-                    )
-                        .show()
-                    viewModel.updateButtonEnable(false)
-                    val startTime: String? =
-                        if (viewModel.startTime.value == "00:00:00") null else viewModel.startTime.value
-                    val stopTime: String? =
-                        if (viewModel.stopTime.value == "00:00:00") null else viewModel.stopTime.value
-                    val videoJobHandler: VideoJobHandler =
-                        if (!useHardware) FFmpegVideoJobHandler() else HardwareVideoJobHandler()
-                    videoJobHandler.handleWork(this, uri, startTime, stopTime, { outputFilePath ->
-                        viewModel.updateButtonEnable(true)
-                        if (outputFilePath != null)
-                            Utils.scanOutputFile(this, outputFilePath) {
-                                finish()
-                            }
-                    }, { action ->
-                        runOnUiThread(action)
-                    }, { currentProgress ->
-                        viewModel.updateProgressWithStatistics(currentProgress)
-                    })
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val data: Intent? = result.data
+                data?.data?.also { uri ->
+                    // Handle the Uri, perform read or display operations
+                    // Handle the selected video URI
+                    val validator = TimeFormatValidator()
+                    if (!validator.testTimeFormat(viewModel.startTime.value) || !validator.testTimeFormat(
+                            viewModel.stopTime.value
+                        )
+                    ) {
+                        Toast.makeText(this, "Time not in the correct format", Toast.LENGTH_SHORT)
+                            .show()
+                    } else {
+                        Toast.makeText(
+                            this,
+                            "FFMpeg processing started, be patient",
+                            Toast.LENGTH_SHORT
+                        )
+                            .show()
+                        viewModel.updateButtonEnable(false)
+                        val startTime: String? =
+                            if (viewModel.startTime.value == "00:00:00") null else viewModel.startTime.value
+                        val stopTime: String? =
+                            if (viewModel.stopTime.value == "00:00:00") null else viewModel.stopTime.value
+                        val videoJobHandler: VideoJobHandler =
+                            if (!useHardware) FFmpegVideoJobHandler() else HardwareVideoJobHandler()
+                        videoJobHandler.handleWork(
+                            this,
+                            uri,
+                            startTime,
+                            stopTime,
+                            { outputFilePath ->
+                                viewModel.updateButtonEnable(true)
+                                if (outputFilePath != null)
+                                    Utils.scanOutputFile(this, outputFilePath) {
+                                        finish()
+                                    }
+                            },
+                            { action ->
+                                runOnUiThread(action)
+                            },
+                            { currentProgress ->
+                                viewModel.updateProgressWithStatistics(currentProgress)
+                            })
+                    }
                 }
             }
         }
@@ -115,7 +128,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
     private fun hasReadExternalStoragePermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -133,7 +145,11 @@ class MainActivity : ComponentActivity() {
 
     private fun openVideoPicker() {
         Utils.scanCameraOutputFile(this);
-        pickVideoLauncher.launch("video/*")
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "video/*"
+        }
+        pickVideoLauncher.launch(intent)
     }
 
     override fun onRequestPermissionsResult(

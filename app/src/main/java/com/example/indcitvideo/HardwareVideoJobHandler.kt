@@ -335,7 +335,8 @@ class HardwareVideoJobWorker(
         val dateTimeDrawer = DateTimeDrawer(creationTime, bottomLineAccountor, width, height)
         drawers = arrayOf(videoTextureDrawer, dateTimeDrawer)
         if (geolocation != null) {
-            val geolocationDrawer = GeolocationDrawer(geolocation, width, height, bottomLineAccountor)
+            val geolocationDrawer =
+                GeolocationDrawer(geolocation, width, height, bottomLineAccountor)
             drawers = drawers!! + geolocationDrawer
         }
         drawers!!.forEach { drawer -> drawer.preapreResources() }
@@ -415,7 +416,7 @@ class HardwareVideoJobWorker(
             while (outIndex != MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (outIndex >= 0) {
                     val doRender =
-                        bufferInfo.size !== 0 && (startFrame == null || decodedFrameCount >= startFrame)
+                        bufferInfo.size != 0 && (startFrame == null || decodedFrameCount >= startFrame)
                     decoder.releaseOutputBuffer(outIndex, doRender)
                     if (doRender) {
                         awaitNewImage()
@@ -463,7 +464,7 @@ class HardwareVideoJobWorker(
                     muxer.start()
                 }
 
-                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG !== 0) {
+                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                     // The codec config data was pulled out and fed to the muxer when we got
                     // the INFO_OUTPUT_FORMAT_CHANGED status.  Ignore it.
                     bufferInfo.size = 0
@@ -497,7 +498,7 @@ class HardwareVideoJobWorker(
                     encoder.releaseOutputBuffer(bufferIndex, false)
                 }
 
-                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM !== 0) {
+                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                     if (!isEOS)
                         Utils.logD("unexpected encoder eos")
                     else
@@ -514,7 +515,7 @@ class HardwareVideoJobWorker(
             muxer.stop()
     }
 
-    fun createMutexer(outputFilePath: String, encoder: MediaCodec): MediaMuxer {
+    fun createMuxer(outputFilePath: String): MediaMuxer {
         val muxer = MediaMuxer(outputFilePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         return muxer
     }
@@ -534,8 +535,7 @@ class HardwareVideoJobHandler : VideoJobHandler {
         // and MediaExtractor
         val retriever = MediaMetadataRetriever()
         var creationTime: Date;
-        var totalDurationInMilliseconds = 0L
-        var geolocation:FloatArray? = null
+        var totalDurationInMilliseconds: Long
 
         try {
             retriever.setDataSource(context, uri)
@@ -552,7 +552,8 @@ class HardwareVideoJobHandler : VideoJobHandler {
             retriever.close()
         }
 
-        geolocation = Utils.getGpsLocationFromImage(context, uri)
+        var geolocation: FloatArray? =
+            Utils.getGpsLocationFromImage(context, uri)
 
         totalDurationInMilliseconds =
             Utils.adjustTotalTime(startTime, stopTime, totalDurationInMilliseconds);
@@ -566,7 +567,6 @@ class HardwareVideoJobHandler : VideoJobHandler {
         val fd = context.contentResolver.openFileDescriptor(uri, "r")?.fileDescriptor
             ?: throw IllegalStateException("can not get fd from uri: $uri")
         Thread {
-            val extractor = MediaExtractor()
             val worker = HardwareVideoJobWorker(
                 fd,
                 runOnUi,
@@ -605,7 +605,7 @@ class HardwareVideoJobHandler : VideoJobHandler {
                 eglSurface = neweglSurface
                 eglContext = neweglContext
                 worker.prepareDrawers()
-                val muxer = worker.createMutexer(outputFilePath, encoder)
+                val muxer = worker.createMuxer(outputFilePath)
                 muxerToRelease = muxer
                 worker.process(
                     startDecoderResult.decoder,
