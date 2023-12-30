@@ -69,6 +69,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("com.arthenica:ffmpeg-kit-full-gpl:6.0-2.LTS")
+    implementation("com.squareup.okhttp3:okhttp:4.9.0")
     implementation("androidx.activity:activity-ktx:1.3.1")
     implementation("androidx.fragment:fragment-ktx:1.3.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.3.1")

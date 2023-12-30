@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.media.ExifInterface
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.opengl.GLES20
@@ -12,6 +13,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
 import java.io.File
+import java.io.IOException
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 
@@ -85,6 +87,21 @@ class Utils {
 
             // Build the output path in the Camera directory
             return File(cameraDir, outputFileName).absolutePath
+        }
+
+        fun getGpsLocationFromImage(context: Context, imageUri: Uri): FloatArray? {
+            try {
+                context.contentResolver.openInputStream(imageUri)?.use { inputStream ->
+                    val exifInterface = ExifInterface(inputStream)
+
+                    val latLong = FloatArray(2)
+                    if (exifInterface.getLatLong(latLong))
+                        return latLong
+                }
+            } catch (e: IOException) {
+                return null
+            }
+            return null
         }
 
         fun adjustTotalTime(startTime: String?, stopTime: String?, totalTime: Long): Long {

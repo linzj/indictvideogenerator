@@ -27,37 +27,9 @@ class DateTimeDrawer(
     var textureWidth = 256
 
     private fun prepareDateTimeTexture(): Int {
-        val textBitmap = Bitmap.createBitmap(textureWidth, textureHeight, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(textBitmap)
-        val paint = Paint().apply {
-            color = android.graphics.Color.WHITE
-            textSize = textureHeight.toFloat()
-            isAntiAlias = true
-            typeface = Typeface.MONOSPACE
-        }
-
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-        // Draw the date onto the Bitmap
-        canvas.drawColor(android.graphics.Color.TRANSPARENT)
-        canvas.drawText(dateFormat.format(creationTime), 0f, paint.textSize, paint)
-        // Generate a new OpenGL texture
-        val textureIds = IntArray(1)
-        GLES20.glGenTextures(1, textureIds, 0)
-        Utils.checkGLError("After gen textures for datetime")
-        val textTextureId = textureIds[0]
-
-        // Bind the texture and load the Bitmap data
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textTextureId)
-        Utils.checkGLError("After bind texture for datetime")
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, textBitmap, 0)
-        Utils.checkGLError("After upload texture for datetime")
-
-        // Set texture parameters
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-        Utils.checkGLError("After set min filter for datetime")
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-        Utils.checkGLError("After set mag filter for datetime")
-        return textTextureId
+        val text = dateFormat.format(creationTime)
+        return prepareStringTexture(textureWidth, textureHeight, text)
     }
 
     private fun releaseResources(dateTimeFormatTex: Int) {

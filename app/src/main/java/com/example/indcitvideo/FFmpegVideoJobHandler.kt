@@ -70,7 +70,7 @@ class FFmpegVideoJobHandler : VideoJobHandler {
                 // Parse and format creation time
                 val dateFormat = SimpleDateFormat("yyyyMMdd'T'HHmmss.SSS'Z'", Locale.US)
                 dateFormat.timeZone = TimeZone.getTimeZone("UTC")
-                val originalCreationDate: Date? = dateFormat.parse(creationTime)
+                val originalCreationDate: Date? = dateFormat.parse(creationTime!!)
 
                 // Format the Date object into local date string
                 val displayDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)

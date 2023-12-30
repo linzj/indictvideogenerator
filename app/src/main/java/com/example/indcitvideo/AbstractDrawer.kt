@@ -1,11 +1,16 @@
 package com.example.indcitvideo
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.opengl.GLES20
+import android.opengl.GLUtils
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 abstract class AbstractDrawer : Drawer {
     companion object {
@@ -240,6 +245,48 @@ abstract class AbstractDrawer : Drawer {
             }
             // Measure the text
             return paint.measureText(text)
+        }
+
+        fun prepareStringTexture(textureWidth: Int, textureHeight: Int, text: String): Int {
+            val textBitmap =
+                Bitmap.createBitmap(textureWidth, textureHeight, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(textBitmap)
+            val paint = Paint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = textureHeight.toFloat()
+                isAntiAlias = true
+                typeface = Typeface.MONOSPACE
+            }
+
+            // Draw the date onto the Bitmap
+            canvas.drawColor(android.graphics.Color.TRANSPARENT)
+            canvas.drawText(text, 0f, paint.textSize, paint)
+            // Generate a new OpenGL texture
+            val textureIds = IntArray(1)
+            GLES20.glGenTextures(1, textureIds, 0)
+            Utils.checkGLError("After gen textures for datetime")
+            val textTextureId = textureIds[0]
+
+            // Bind the texture and load the Bitmap data
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textTextureId)
+            Utils.checkGLError("After bind texture for datetime")
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, textBitmap, 0)
+            Utils.checkGLError("After upload texture for datetime")
+
+            // Set texture parameters
+            GLES20.glTexParameteri(
+                GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MIN_FILTER,
+                GLES20.GL_LINEAR
+            )
+            Utils.checkGLError("After set min filter for datetime")
+            GLES20.glTexParameteri(
+                GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MAG_FILTER,
+                GLES20.GL_LINEAR
+            )
+            Utils.checkGLError("After set mag filter for datetime")
+            return textTextureId
         }
     }
 }

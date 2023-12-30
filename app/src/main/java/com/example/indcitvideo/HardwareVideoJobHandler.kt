@@ -49,7 +49,8 @@ class HardwareVideoJobWorker(
     private val creationTime: Date,
     private val totalDurationInMilliseconds: Long,
     private val startMills: Long?,
-    private val stopMills: Long?
+    private val stopMills: Long?,
+    private val geolocation: FloatArray?
 ) {
     private var mFrameAvailable: Boolean = false
     private lateinit var shaderProgramNormal: ShaderProgramComponent
@@ -333,7 +334,11 @@ class HardwareVideoJobWorker(
         videoTextureDrawer = VideoTextureDrawer()
         val dateTimeDrawer = DateTimeDrawer(creationTime, bottomLineAccountor, width, height)
         drawers = arrayOf(videoTextureDrawer, dateTimeDrawer)
-        drawers?.forEach { drawer -> drawer.preapreResources() }
+        if (geolocation != null) {
+            val geolocationDrawer = GeolocationDrawer(geolocation, width, height, bottomLineAccountor)
+            drawers = drawers!! + geolocationDrawer
+        }
+        drawers!!.forEach { drawer -> drawer.preapreResources() }
     }
 
 
@@ -530,6 +535,8 @@ class HardwareVideoJobHandler : VideoJobHandler {
         val retriever = MediaMetadataRetriever()
         var creationTime: Date;
         var totalDurationInMilliseconds = 0L
+        var geolocation:FloatArray? = null
+
         try {
             retriever.setDataSource(context, uri)
             val creationTimeString =
@@ -544,6 +551,8 @@ class HardwareVideoJobHandler : VideoJobHandler {
         } finally {
             retriever.close()
         }
+
+        geolocation = Utils.getGpsLocationFromImage(context, uri)
 
         totalDurationInMilliseconds =
             Utils.adjustTotalTime(startTime, stopTime, totalDurationInMilliseconds);
@@ -566,7 +575,8 @@ class HardwareVideoJobHandler : VideoJobHandler {
                 creationTime,
                 totalDurationInMilliseconds,
                 startMills,
-                stopMills
+                stopMills,
+                geolocation
             )
             val videoTrackIndex = worker.selectTrack()
             var surface: Surface? = null
