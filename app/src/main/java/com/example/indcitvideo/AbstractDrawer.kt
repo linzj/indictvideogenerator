@@ -253,7 +253,7 @@ abstract class AbstractDrawer : Drawer {
             val canvas = Canvas(textBitmap)
             val paint = Paint().apply {
                 color = android.graphics.Color.WHITE
-                textSize = textureHeight.toFloat()
+                textSize = textureHeight.toFloat() - 2.0f
                 isAntiAlias = true
                 typeface = Typeface.MONOSPACE
             }

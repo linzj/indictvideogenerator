@@ -50,7 +50,7 @@ class HardwareVideoJobWorker(
     private val totalDurationInMilliseconds: Long,
     private val startMills: Long?,
     private val stopMills: Long?,
-    private val geolocation: FloatArray?
+    private val geolocation: Pair<Double, Double>?
 ) {
     private var mFrameAvailable: Boolean = false
     private lateinit var shaderProgramNormal: ShaderProgramComponent
@@ -552,8 +552,7 @@ class HardwareVideoJobHandler : VideoJobHandler {
             retriever.close()
         }
 
-        var geolocation: FloatArray? =
-            Utils.getGpsLocationFromImage(context, uri)
+        var geolocation = Utils.extractGpsLocationFromMp4(context, uri)
 
         totalDurationInMilliseconds =
             Utils.adjustTotalTime(startTime, stopTime, totalDurationInMilliseconds);

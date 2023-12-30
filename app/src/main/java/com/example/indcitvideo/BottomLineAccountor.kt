@@ -1,12 +1,16 @@
 package com.example.indcitvideo
 
 class BottomLineAccountor {
+    companion object {
+        const val paddingPixels = 10.0f
+    }
     var currentConsumed = 0.0f
     fun calculateTextureVertex(
         surfaceWidth: Int, surfaceHeight: Int, textureWidth: Int, textureHeight: Int
     ): FloatArray {
         val textureWidthNormalized = textureWidth.toFloat() / surfaceWidth * 2.0f
         val textureHeightNormalized = textureHeight.toFloat() / surfaceHeight * 2.0f
+        val paddingNormalized = paddingPixels / surfaceHeight * 2.0f
 
         // Calculate the right and top positions
         val right = 1.0f
@@ -29,7 +33,7 @@ class BottomLineAccountor {
 
         )
 
-        currentConsumed += textureHeightNormalized
+        currentConsumed += textureHeightNormalized + paddingNormalized
         return quadVertices
     }
 }

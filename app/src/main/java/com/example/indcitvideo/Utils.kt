@@ -12,6 +12,9 @@ import android.os.Environment
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
+import com.drew.imaging.mp4.Mp4MetadataReader
+import com.drew.metadata.Metadata
+import com.drew.metadata.mp4.Mp4Directory
 import java.io.File
 import java.io.IOException
 import java.time.LocalTime
@@ -89,21 +92,23 @@ class Utils {
             return File(cameraDir, outputFileName).absolutePath
         }
 
-        fun getGpsLocationFromImage(context: Context, imageUri: Uri): FloatArray? {
-            try {
-                context.contentResolver.openInputStream(imageUri)?.use { inputStream ->
-                    val exifInterface = ExifInterface(inputStream)
+        fun extractGpsLocationFromMp4(context: Context, uri: Uri): Pair<Double, Double>? {
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                try {
+                    val metadata: Metadata = Mp4MetadataReader.readMetadata(inputStream) ?: return null
 
-                    val latLong = FloatArray(2)
-                    if (exifInterface.getLatLong(latLong))
-                        return latLong
+                    val gpsDirectory = metadata.getFirstDirectoryOfType(Mp4Directory::class.java)
+                    if (gpsDirectory != null) {
+                        val latitude = gpsDirectory.getDouble(Mp4Directory.TAG_LATITUDE)
+                        val longitude = gpsDirectory.getDouble(Mp4Directory.TAG_LONGITUDE)
+                        return Pair(latitude, longitude)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-            } catch (e: IOException) {
-                return null
             }
             return null
         }
-
         fun adjustTotalTime(startTime: String?, stopTime: String?, totalTime: Long): Long {
             val startTimeObj = startTime?.let { LocalTime.parse(it) }
             val stopTimeObj = stopTime?.let { LocalTime.parse(it) }
