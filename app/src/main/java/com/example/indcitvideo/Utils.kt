@@ -1,14 +1,14 @@
 package com.example.indcitvideo
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.graphics.Paint
-import android.graphics.Typeface
-import android.media.ExifInterface
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.opengl.GLES20
 import android.os.Environment
+import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
@@ -16,9 +16,9 @@ import com.drew.imaging.mp4.Mp4MetadataReader
 import com.drew.metadata.Metadata
 import com.drew.metadata.mp4.Mp4Directory
 import java.io.File
-import java.io.IOException
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
+
 
 class Utils {
     companion object {
@@ -48,19 +48,12 @@ class Utils {
         }
 
         fun scanOutputFile(context: Context, newFileName: String, finish: () -> Unit) {
-            MediaScannerConnection.scanFile(
-                context, arrayOf(newFileName),
-                null
-            ) { path, uri ->
-                logI("Scanned $path:")
-                logI("-> uri=$uri")
-                Toast.makeText(context, "Finished converting to $newFileName", Toast.LENGTH_SHORT)
-                    .show()
-                finish()
-            }
+            Toast.makeText(context, "Finished converting to DCIM directory", Toast.LENGTH_SHORT)
+                .show()
+            finish()
         }
 
-        fun buildOutputPath(context: Context, contentUri: Uri): String? {
+        fun buildOutputFile(context: Context, contentUri: Uri): ParcelFileDescriptor? {
             // Use ContentResolver to get the file name from the Uri
             val contentResolver = context.contentResolver
 
@@ -87,15 +80,28 @@ class Utils {
 
             // Append "_indict" to the file name and the ".mp4" suffix
             val outputFileName = "${fileNameWithoutExtension}_indict.mp4"
+            val title = "${fileNameWithoutExtension}_indict"
 
-            // Build the output path in the Camera directory
-            return File(cameraDir, outputFileName).absolutePath
+            val values = ContentValues()
+            values.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM)
+            values.put(MediaStore.Video.Media.TITLE, title)
+            values.put(MediaStore.Video.Media.DISPLAY_NAME, outputFileName)
+            values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            values.put(MediaStore.Video.Media.DATE_ADDED, System.currentTimeMillis() / 1000)
+            values.put(MediaStore.Video.Media.DATE_TAKEN, System.currentTimeMillis())
+
+            val videoUri: Uri? =
+                contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            if (videoUri != null)
+                return contentResolver.openFileDescriptor(videoUri, "w")
+            return null
         }
 
         fun extractGpsLocationFromMp4(context: Context, uri: Uri): Pair<Double, Double>? {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 try {
-                    val metadata: Metadata = Mp4MetadataReader.readMetadata(inputStream) ?: return null
+                    val metadata: Metadata =
+                        Mp4MetadataReader.readMetadata(inputStream) ?: return null
 
                     val gpsDirectory = metadata.getFirstDirectoryOfType(Mp4Directory::class.java)
                     if (gpsDirectory != null) {
@@ -109,6 +115,7 @@ class Utils {
             }
             return null
         }
+
         fun adjustTotalTime(startTime: String?, stopTime: String?, totalTime: Long): Long {
             val startTimeObj = startTime?.let { LocalTime.parse(it) }
             val stopTimeObj = stopTime?.let { LocalTime.parse(it) }

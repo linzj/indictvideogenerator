@@ -3,14 +3,14 @@ package com.example.indcitvideo
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import com.arthenica.ffmpegkit.FFmpegKit
 import java.io.File
 import java.text.SimpleDateFormat
-import java.time.LocalTime
-import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
 
 class FFmpegVideoJobHandler : VideoJobHandler {
 
@@ -104,7 +104,7 @@ class FFmpegVideoJobHandler : VideoJobHandler {
         val inputString = inputFileManager.getInputString(uri)
 
         // Construct FFmpeg command
-        val outputFilePath = Utils.buildOutputPath(context, uri);
+        val outputFile = Utils.buildOutputFile(context, uri)?.detachFd();
 
         val ffmpegCommand = StringBuilder("-y $inputString")
 
@@ -118,7 +118,7 @@ class FFmpegVideoJobHandler : VideoJobHandler {
             ffmpegCommand.append(" -to $it")
         }
         ffmpegCommand.append(
-            " -vf drawtext=fontfile=$fontPath:x=(w-tw)-10:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5:timecode=\\'$formattedTime\\:00\\':rate=$frameRate,drawtext=fontfile=$fontPath:text='$formattedDate':x=(w-tw)-text_w-40:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5 -c:v libx264 -an $outputFilePath"
+            " -vf drawtext=fontfile=$fontPath:x=(w-tw)-10:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5:timecode=\\'$formattedTime\\:00\\':rate=$frameRate,drawtext=fontfile=$fontPath:text='$formattedDate':x=(w-tw)-text_w-40:y=(h-th)-10:fontcolor=white@1.0:fontsize=$fontSize:box=1:boxcolor=black@0.5:boxborderw=5 -f mp4 -c:v libx264 -an -fd $outputFile fd:"
         )
 
         // Execute FFmpeg command
@@ -126,6 +126,10 @@ class FFmpegVideoJobHandler : VideoJobHandler {
             ffmpegCommand.toString(),
             { session ->
                 inputFileManager.finish()
+                if (outputFile != null) {
+                    val fdObj = ParcelFileDescriptor.fromFd(outputFile)
+                    fdObj.close()
+                }
 
                 // This callback is called when the execution is completed
                 val returnCode = session.returnCode
@@ -141,7 +145,7 @@ class FFmpegVideoJobHandler : VideoJobHandler {
                 }
                 // Optionally shut down the executor service if it is no longer needed
                 runOnUi {
-                    finishAction(outputFilePath)
+                    finishAction("indicted.mp4")
                 }
             },
             // LogCallback
