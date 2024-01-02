@@ -110,7 +110,7 @@ class GeolocationDrawer(
                 vertexCoordBufferForText,
                 texCoordBuffer
             )
-        } catch (e: IOException) {
+        } catch (e: Exception) {
         }
     }
 
