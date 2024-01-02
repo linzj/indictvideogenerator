@@ -562,7 +562,6 @@ class HardwareVideoJobHandler : VideoJobHandler {
 
         val outputFile = Utils.buildOutputFile(context, uri)
             ?: throw IllegalStateException("can not get outputFilePath from uri: $uri")
-        val outputFileFd = outputFile.fileDescriptor
 
         val fd = context.contentResolver.openFileDescriptor(uri, "r")?.fileDescriptor
             ?: throw IllegalStateException("can not get fd from uri: $uri")
@@ -605,6 +604,7 @@ class HardwareVideoJobHandler : VideoJobHandler {
                 eglSurface = neweglSurface
                 eglContext = neweglContext
                 worker.prepareDrawers()
+                val outputFileFd = outputFile.fileDescriptor
                 val muxer = worker.createMuxer(outputFileFd)
                 muxerToRelease = muxer
                 worker.process(
@@ -628,6 +628,7 @@ class HardwareVideoJobHandler : VideoJobHandler {
                 muxerToRelease?.release()
                 encoderToRelease?.release();
                 decoderToRelease?.release()
+                outputFile.close()
             }
             runOnUi {
                 finishAction("indicted.mp4")
