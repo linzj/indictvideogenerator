@@ -1,9 +1,12 @@
 package com.example.indcitvideo
 
+import android.Manifest.permission.READ_EXTERNAL_STORAGE
+import android.Manifest.permission.READ_MEDIA_IMAGES
+import android.Manifest.permission.READ_MEDIA_VIDEO
+import android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -27,13 +30,11 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.example.indcitvideo.ui.theme.IndcitvideoTheme
-
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -97,6 +98,27 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    // Register ActivityResult handler
+    private val requestPermissions =
+        this.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            // Handle permission requests results
+            // See the permission example in the Android platform samples: https://github.com/android/platform-samples
+            var allGranted = true
+            results.forEach { permission, granted ->
+                if (!granted) {
+                    Toast.makeText(
+                        this,
+                        "You shall grant the permission: $permission",
+                        Toast.LENGTH_SHORT
+                    )
+                        .show()
+                    allGranted = false
+                }
+            }
+            if (allGranted)
+                openVideoPicker()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -130,50 +152,58 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun hasReadExternalStoragePermission(): Boolean {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || ContextCompat.checkSelfPermission(
-            this,
-            android.Manifest.permission.READ_EXTERNAL_STORAGE
-        ) == PackageManager.PERMISSION_GRANTED
+        val permissionsToCheck = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                arrayOf(
+                    READ_MEDIA_IMAGES,
+                    READ_MEDIA_VIDEO,
+                    READ_MEDIA_VISUAL_USER_SELECTED
+                )
+            }
+
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                arrayOf(
+                    READ_MEDIA_IMAGES,
+                    READ_MEDIA_VIDEO
+                )
+            }
+
+            else -> {
+                arrayOf(READ_EXTERNAL_STORAGE)
+            }
+        }
+
+        return permissionsToCheck.all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     private fun requestReadExternalStoragePermission() {
-        ActivityCompat.requestPermissions(
-            this,
-            arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE),
-            PERMISSIONS_REQUEST_READ_EXTERNAL_STORAGE
-        )
+
+// Permission request logic
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            requestPermissions.launch(
+                arrayOf(
+                    READ_MEDIA_IMAGES,
+                    READ_MEDIA_VIDEO,
+                    READ_MEDIA_VISUAL_USER_SELECTED
+                )
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions.launch(arrayOf(READ_MEDIA_IMAGES, READ_MEDIA_VIDEO))
+        } else {
+            requestPermissions.launch(arrayOf(READ_EXTERNAL_STORAGE))
+        }
     }
 
     private fun openVideoPicker() {
         Utils.scanCameraOutputFile(this);
+
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "video/*"
         }
         pickVideoLauncher.launch(intent)
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        when (requestCode) {
-            PERMISSIONS_REQUEST_READ_EXTERNAL_STORAGE -> {
-                if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
-                    openVideoPicker()
-                } else {
-                    // Permission denied. Handle the case where the user denies the permission.
-                    Toast.makeText(this, "You shall grant the permission", Toast.LENGTH_SHORT)
-                        .show()
-                }
-                return
-            }
-
-            else -> {
-                // Ignore all other requests.
-            }
-        }
     }
 }
 
