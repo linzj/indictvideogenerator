@@ -100,23 +100,24 @@ class MainActivity : ComponentActivity() {
 
     // Register ActivityResult handler
     private val requestPermissions =
-        this.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+        this.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             // Handle permission requests results
             // See the permission example in the Android platform samples: https://github.com/android/platform-samples
-            var allGranted = true
-            results.forEach { permission, granted ->
-                if (!granted) {
-                    Toast.makeText(
-                        this,
-                        "You shall grant the permission: $permission",
-                        Toast.LENGTH_SHORT
-                    )
-                        .show()
-                    allGranted = false
+            val allGranted = permissions.all { it.value }
+            if (allGranted) {
+                openVideoPicker()
+            } else {
+                permissions.forEach { (permission, granted) ->
+                    if (!granted) {
+                        Toast.makeText(
+                            this,
+                            "You shall grant the permission: $permission",
+                            Toast.LENGTH_SHORT
+                        )
+                            .show()
+                    }
                 }
             }
-            if (allGranted)
-                openVideoPicker()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
