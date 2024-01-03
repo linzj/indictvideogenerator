@@ -71,19 +71,15 @@ class Utils {
             // If we couldn't get the file name, return null
             if (fileNameWithoutExtension == null) return null
 
-            // Get the directory for the user's public pictures directory
-            val cameraDir =
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM + "/Camera")
-
-            // If the external storage directory is not available, return null
-            if (cameraDir == null || !cameraDir.exists() && !cameraDir.mkdirs()) return null
-
             // Append "_indict" to the file name and the ".mp4" suffix
             val outputFileName = "${fileNameWithoutExtension}_indict.mp4"
             val title = "${fileNameWithoutExtension}_indict"
 
             val values = ContentValues()
-            values.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM)
+            values.put(
+                MediaStore.Video.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_DCIM + "/indict_video"
+            )
             values.put(MediaStore.Video.Media.TITLE, title)
             values.put(MediaStore.Video.Media.DISPLAY_NAME, outputFileName)
             values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
