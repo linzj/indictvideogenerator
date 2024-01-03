@@ -1,17 +1,19 @@
 package com.example.indcitvideo
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.media.MediaScannerConnection
 import android.net.Uri
 import android.opengl.GLES20
+import android.os.Build
 import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import com.drew.imaging.mp4.Mp4MetadataReader
 import com.drew.metadata.Metadata
 import com.drew.metadata.mp4.Mp4Directory
@@ -77,8 +79,7 @@ class Utils {
 
             val values = ContentValues()
             values.put(
-                MediaStore.Video.Media.RELATIVE_PATH,
-                Environment.DIRECTORY_DCIM + "/indict_video"
+                MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/indict_video"
             )
             values.put(MediaStore.Video.Media.TITLE, title)
             values.put(MediaStore.Video.Media.DISPLAY_NAME, outputFileName)
@@ -88,12 +89,62 @@ class Utils {
 
             val videoUri: Uri? =
                 contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-            if (videoUri != null)
-                return contentResolver.openFileDescriptor(videoUri, "w")
+            if (videoUri != null) return contentResolver.openFileDescriptor(videoUri, "w")
             return null
         }
 
-        fun extractGpsLocationFromMp4(context: Context, uri: Uri): Pair<Double, Double>? {
+        @RequiresApi(Build.VERSION_CODES.Q)
+        private fun translateDocumentUriToMediaStoreUri(context: Context, documentUri: Uri): Uri? {
+            try {
+                val projection = arrayOf(
+                    MediaStore.MediaColumns._ID,
+                    MediaStore.MediaColumns.DISPLAY_NAME,
+                    MediaStore.MediaColumns.SIZE
+                )
+
+                var mediaId: String? = null
+
+                context.contentResolver.query(documentUri, projection, null, null, null)
+                    .use { cursor ->
+                        if (cursor != null && cursor.moveToFirst()) {
+                            val displayName: String =
+                                cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME))
+
+                            // You can use DISPLAY_NAME to find the file in MediaStore
+                            val mediaStoreUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                            val selection = MediaStore.MediaColumns.DISPLAY_NAME + "=?"
+                            val selectionArgs = arrayOf(displayName)
+                            context.contentResolver.query(
+                                mediaStoreUri,
+                                arrayOf<String>(MediaStore.MediaColumns._ID),
+                                selection,
+                                selectionArgs,
+                                null
+                            ).use { mediaCursor ->
+                                if (mediaCursor != null && mediaCursor.moveToFirst()) {
+                                    mediaId = mediaCursor.getString(
+                                        mediaCursor.getColumnIndexOrThrow(
+                                            MediaStore.MediaColumns._ID
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                // Build the final MediaStore Uri if ID was found
+                if (mediaId != null) {
+                    val mediaUri = ContentUris.withAppendedId(
+                        MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId!!.toLong()
+                    )
+                    return MediaStore.setRequireOriginal(mediaUri)
+                }
+            } catch (e: Exception) {
+            }
+            return null
+        }
+
+        private fun doExtractGpsLocationFromMp4(context: Context, uri: Uri): Pair<Double, Double>? {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 try {
                     val metadata: Metadata =
@@ -110,6 +161,14 @@ class Utils {
                 }
             }
             return null
+        }
+
+        fun extractGpsLocationFromMp4(context: Context, uri: Uri): Pair<Double, Double>? {
+            val result = doExtractGpsLocationFromMp4(context, uri)
+            if (result != null) return result
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+            val mediaStoreUri = translateDocumentUriToMediaStoreUri(context, uri) ?: return null
+            return doExtractGpsLocationFromMp4(context, mediaStoreUri)
         }
 
         fun adjustTotalTime(startTime: String?, stopTime: String?, totalTime: Long): Long {

@@ -1,5 +1,6 @@
 package com.example.indcitvideo
 
+import android.Manifest.permission.ACCESS_MEDIA_LOCATION
 import android.Manifest.permission.READ_EXTERNAL_STORAGE
 import android.Manifest.permission.READ_MEDIA_IMAGES
 import android.Manifest.permission.READ_MEDIA_VIDEO
@@ -40,7 +41,18 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val PERMISSIONS_REQUEST_READ_EXTERNAL_STORAGE = 1
         private const val REQUEST_VIDEO_FILE = 2
-        private const val TAG = "LINZJ"
+        private val androidUPermissions = arrayOf(
+            READ_MEDIA_IMAGES,
+            READ_MEDIA_VIDEO,
+            READ_MEDIA_VISUAL_USER_SELECTED,
+            ACCESS_MEDIA_LOCATION
+        )
+
+        private val androidTPermissions = arrayOf(
+            READ_MEDIA_IMAGES, READ_MEDIA_VIDEO, ACCESS_MEDIA_LOCATION
+        )
+
+        private val androidPreTPermissions = arrayOf(READ_EXTERNAL_STORAGE)
     }
 
     private val viewModel = FFmpegViewModel()
@@ -63,11 +75,8 @@ class MainActivity : ComponentActivity() {
                             .show()
                     } else {
                         Toast.makeText(
-                            this,
-                            "FFMpeg processing started, be patient",
-                            Toast.LENGTH_SHORT
-                        )
-                            .show()
+                            this, "FFMpeg processing started, be patient", Toast.LENGTH_SHORT
+                        ).show()
                         viewModel.updateButtonEnable(false)
                         val startTime: String? =
                             if (viewModel.startTime.value == "00:00:00") null else viewModel.startTime.value
@@ -75,17 +84,18 @@ class MainActivity : ComponentActivity() {
                             if (viewModel.stopTime.value == "00:00:00") null else viewModel.stopTime.value
                         val videoJobHandler: VideoJobHandler =
                             if (!useHardware) FFmpegVideoJobHandler() else HardwareVideoJobHandler()
-                        videoJobHandler.handleWork(
-                            this,
+                        videoJobHandler.handleWork(this,
                             uri,
                             startTime,
                             stopTime,
                             { outputFilePath ->
                                 viewModel.updateButtonEnable(true)
-                                if (outputFilePath != null)
-                                    Utils.scanOutputFile(this, outputFilePath) {
-                                        finish()
-                                    }
+                                if (outputFilePath != null) Utils.scanOutputFile(
+                                    this,
+                                    outputFilePath
+                                ) {
+                                    finish()
+                                }
                             },
                             { action ->
                                 runOnUiThread(action)
@@ -110,11 +120,8 @@ class MainActivity : ComponentActivity() {
                 permissions.forEach { (permission, granted) ->
                     if (!granted) {
                         Toast.makeText(
-                            this,
-                            "You shall grant the permission: $permission",
-                            Toast.LENGTH_SHORT
-                        )
-                            .show()
+                            this, "You shall grant the permission: $permission", Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }
             }
@@ -126,27 +133,24 @@ class MainActivity : ComponentActivity() {
             IndcitvideoTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background
                 ) {
                     // Greeting("Android")
-                    FFmpegProgressView(viewModel,
-                        onButtonClick = {
-                            useHardware = false
-                            if (hasReadExternalStoragePermission()) {
-                                openVideoPicker()
-                            } else {
-                                requestReadExternalStoragePermission()
-                            }
-                        },
-                        onSecondButtonClick = {
-                            useHardware = true
-                            if (hasReadExternalStoragePermission()) {
-                                openVideoPicker()
-                            } else {
-                                requestReadExternalStoragePermission()
-                            }
-                        })
+                    FFmpegProgressView(viewModel, onButtonClick = {
+                        useHardware = false
+                        if (hasReadExternalStoragePermission()) {
+                            openVideoPicker()
+                        } else {
+                            requestReadExternalStoragePermission()
+                        }
+                    }, onSecondButtonClick = {
+                        useHardware = true
+                        if (hasReadExternalStoragePermission()) {
+                            openVideoPicker()
+                        } else {
+                            requestReadExternalStoragePermission()
+                        }
+                    })
                 }
             }
         }
@@ -155,22 +159,15 @@ class MainActivity : ComponentActivity() {
     private fun hasReadExternalStoragePermission(): Boolean {
         val permissionsToCheck = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
-                arrayOf(
-                    READ_MEDIA_IMAGES,
-                    READ_MEDIA_VIDEO,
-                    READ_MEDIA_VISUAL_USER_SELECTED
-                )
+                androidUPermissions
             }
 
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
-                arrayOf(
-                    READ_MEDIA_IMAGES,
-                    READ_MEDIA_VIDEO
-                )
+                androidTPermissions
             }
 
             else -> {
-                arrayOf(READ_EXTERNAL_STORAGE)
+                androidPreTPermissions
             }
         }
 
@@ -184,16 +181,14 @@ class MainActivity : ComponentActivity() {
 // Permission request logic
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             requestPermissions.launch(
-                arrayOf(
-                    READ_MEDIA_IMAGES,
-                    READ_MEDIA_VIDEO,
-                    READ_MEDIA_VISUAL_USER_SELECTED
-                )
+                androidUPermissions
             )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions.launch(arrayOf(READ_MEDIA_IMAGES, READ_MEDIA_VIDEO))
+            requestPermissions.launch(
+                androidTPermissions
+            )
         } else {
-            requestPermissions.launch(arrayOf(READ_EXTERNAL_STORAGE))
+            requestPermissions.launch(androidPreTPermissions)
         }
     }
 
@@ -246,9 +241,7 @@ class FFmpegViewModel : ViewModel() {
 @Composable
 fun FFmpegProgressView(
     viewModel: FFmpegViewModel, // Pass the viewModel into the composable
-    modifier: Modifier = Modifier,
-    onButtonClick: () -> Unit,
-    onSecondButtonClick: () -> Unit
+    modifier: Modifier = Modifier, onButtonClick: () -> Unit, onSecondButtonClick: () -> Unit
 ) {
     // Observe LiveData and convert it to State using the collectAsState() function
     val progress by viewModel.progress.observeAsState(0f)
@@ -268,20 +261,12 @@ fun FFmpegProgressView(
         }
 
         // Use the observed states for the TextField values
-        TextField(
-            value = startTime ?: "",
-            onValueChange = { newStartTime ->
-                viewModel.updateStartTime(newStartTime) // Update ViewModel state
-            },
-            label = { Text("Start Time (hh:mm:ss)") }
-        )
-        TextField(
-            value = stopTime ?: "",
-            onValueChange = { newStopTime ->
-                viewModel.updateStopTime(newStopTime) // Update ViewModel state
-            },
-            label = { Text("Stop Time (hh:mm:ss)") }
-        )
+        TextField(value = startTime ?: "", onValueChange = { newStartTime ->
+            viewModel.updateStartTime(newStartTime) // Update ViewModel state
+        }, label = { Text("Start Time (hh:mm:ss)") })
+        TextField(value = stopTime ?: "", onValueChange = { newStopTime ->
+            viewModel.updateStopTime(newStopTime) // Update ViewModel state
+        }, label = { Text("Stop Time (hh:mm:ss)") })
     }
 }
 
@@ -289,8 +274,7 @@ fun FFmpegProgressView(
 fun Greeting(name: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         Text(
-            text = "Hello $name!",
-            modifier = Modifier
+            text = "Hello $name!", modifier = Modifier
         )
         // Add space between the text and the progress bar, for example, using Spacer()
         CreateProgressBar()
