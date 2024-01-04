@@ -32,14 +32,14 @@ import java.util.TimeZone
 class ShaderProgramComponent(
     val shaderProgram: Int,
     val positionHandle: Int,
-    val texCoordHandle: Int,
+    val texCordHandle: Int,
     val mvpMatrixHandle: Int,
     val texMatrixHandle: Int,
     val textureHandle: Int,
     val textureTarget: Int,
     val vertexBuffer: FloatBuffer,
-    val texCoordBuffer: FloatBuffer
-) {}
+    val texCordBuffer: FloatBuffer
+)
 
 class HardwareVideoJobWorker(
     private val fileDescriptor: FileDescriptor,
@@ -53,8 +53,6 @@ class HardwareVideoJobWorker(
     private val geolocation: Pair<Double, Double>?
 ) {
     private var mFrameAvailable: Boolean = false
-    private lateinit var shaderProgramNormal: ShaderProgramComponent
-    private lateinit var shaderProgramExternalTexture: ShaderProgramComponent
     private lateinit var videoTextureDrawer: VideoTextureDrawer
 
     private var width: Int = 0
@@ -62,7 +60,7 @@ class HardwareVideoJobWorker(
     private var bitRate: Int = 0
     private var frameRate: Int = 0
 
-    private val bottomLineAccountor = BottomLineAccountor()
+    private val bottomLineAccount = BottomLineAccountor()
     private var drawers: Array<Drawer>? = null
 
     companion object {
@@ -93,7 +91,7 @@ class HardwareVideoJobWorker(
         }
     }
 
-    val extractor: MediaExtractor = MediaExtractor().apply {
+    private val extractor: MediaExtractor = MediaExtractor().apply {
         // Initialize the extractor with the given file descriptor
         setDataSource(fileDescriptor)
     }
@@ -126,7 +124,7 @@ class HardwareVideoJobWorker(
         val surface: Surface,
         val surfaceTexture: SurfaceTexture,
         val externalTextureId: Int
-    ) {}
+    )
 
     fun startDecoder(videoTrackIndex: Int): StartDecoderResult {
         // Step 1: Retrieving the video format from the extractor
@@ -196,13 +194,13 @@ class HardwareVideoJobWorker(
         // This is just an example format, adjust parameters to suit your needs
         val outputFormat = MediaFormat.createVideoFormat(mime, width, height).apply {
             setInteger(
-                MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+                MediaFormat.KEY_COLOR_FORMAT, CodecCapabilities.COLOR_FormatSurface
             )
             setInteger(MediaFormat.KEY_BIT_RATE, targetBitRate)
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 5) // Example I-frame interval
         }
-        encoder.configure(outputFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        encoder.configure(outputFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
 
         // Step 3a: Create an input surface from the encoder
         val inputSurface = encoder.createInputSurface()
@@ -332,11 +330,11 @@ class HardwareVideoJobWorker(
 
     fun prepareDrawers() {
         videoTextureDrawer = VideoTextureDrawer()
-        val dateTimeDrawer = DateTimeDrawer(creationTime, bottomLineAccountor, width, height)
+        val dateTimeDrawer = DateTimeDrawer(creationTime, bottomLineAccount, width, height)
         drawers = arrayOf(videoTextureDrawer, dateTimeDrawer)
         if (geolocation != null) {
             val geolocationDrawer =
-                GeolocationDrawer(geolocation, width, height, bottomLineAccountor)
+                GeolocationDrawer(geolocation, width, height, bottomLineAccount)
             drawers = drawers!! + geolocationDrawer
         }
         drawers!!.forEach { drawer -> drawer.preapreResources() }
@@ -352,7 +350,7 @@ class HardwareVideoJobWorker(
         creationTime.time = newCreationTime.time
     }
 
-    fun awaitNewImage() {
+    private fun awaitNewImage() {
         val TIMEOUT_MS = 2500
         synchronized(mFrameSyncObject) {
             while (!mFrameAvailable) {
@@ -425,7 +423,7 @@ class HardwareVideoJobWorker(
 
                         // Add the PTS to the queue
                         ptsQueue.add(presentationTimeUs)
-                        decodedFrameCount++;
+                        decodedFrameCount++
                         // skip render if not reach startFrame
                         GLES20.glViewport(0, 0, width, height)
                         Utils.checkGLError("After set view port")
@@ -455,7 +453,7 @@ class HardwareVideoJobWorker(
                 isEOS = true
             // Handle other cases like output format change, etc.
             if (isEOS) {
-                encoder.signalEndOfInputStream();
+                encoder.signalEndOfInputStream()
             }
             var bufferIndex: Int = encoder.dequeueOutputBuffer(bufferInfo, timeoutUs)
             while (bufferIndex != MediaCodec.INFO_TRY_AGAIN_LATER) {
@@ -473,7 +471,7 @@ class HardwareVideoJobWorker(
                 if (bufferIndex >= 0) {
                     // Process the buffer here
                     if (bufferInfo.size != 0) {
-                        val outputBuffer = encoder.getOutputBuffer(bufferIndex);
+                        val outputBuffer = encoder.getOutputBuffer(bufferIndex)
                         // Check if there is a PTS available in the queue
                         if (ptsQueue.isNotEmpty()) {
                             // Retrieve and remove the PTS from the queue
@@ -485,9 +483,9 @@ class HardwareVideoJobWorker(
 
                         if (outputBuffer != null) {
 
-                            outputBuffer.position(bufferInfo.offset);
-                            outputBuffer.limit(bufferInfo.offset + bufferInfo.size);
-                            muxer.writeSampleData(videoTrackIndex, outputBuffer, bufferInfo);
+                            outputBuffer.position(bufferInfo.offset)
+                            outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                            muxer.writeSampleData(videoTrackIndex, outputBuffer, bufferInfo)
                             encodedFrameCount++
                             // update the progress
                             runOnUi {
@@ -516,8 +514,7 @@ class HardwareVideoJobWorker(
     }
 
     fun createMuxer(outputFileDescriptor: FileDescriptor): MediaMuxer {
-        val muxer = MediaMuxer(outputFileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-        return muxer
+        return MediaMuxer(outputFileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
     }
 }
 
@@ -534,28 +531,26 @@ class HardwareVideoJobHandler : VideoJobHandler {
         // Extract creation time first or fd may lead to interference between MediaMetadataRetriever
         // and MediaExtractor
         val retriever = MediaMetadataRetriever()
-        var creationTime: Date;
+        val creationTime: Date
         var totalDurationInMilliseconds: Long
 
-        try {
-            retriever.setDataSource(context, uri)
+        retriever.use { retrieverInUse ->
+            retrieverInUse.setDataSource(context, uri)
             val creationTimeString =
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE) ?: ""
+                retrieverInUse.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE) ?: ""
             val dateFormat = SimpleDateFormat("yyyyMMdd'T'HHmmss.SSS'Z'", Locale.US)
             dateFormat.timeZone = TimeZone.getTimeZone("UTC")
             creationTime = dateFormat.parse(creationTimeString)
                 ?: throw IllegalStateException("unable to parse $creationTimeString")
             totalDurationInMilliseconds =
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                retrieverInUse.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull() ?: 0L
-        } finally {
-            retriever.close()
         }
 
-        var geolocation = Utils.extractGpsLocationFromMp4(context, uri)
+        val geolocation = Utils.extractGpsLocationFromMp4(context, uri)
 
         totalDurationInMilliseconds =
-            Utils.adjustTotalTime(startTime, stopTime, totalDurationInMilliseconds);
+            Utils.adjustTotalTime(startTime, stopTime, totalDurationInMilliseconds)
 
         val startMills = Utils.timeStringToMills(startTime)
         val stopMills = Utils.timeStringToMills(stopTime)
@@ -563,75 +558,77 @@ class HardwareVideoJobHandler : VideoJobHandler {
         val outputFile = Utils.buildOutputFile(context, uri)
             ?: throw IllegalStateException("can not get outputFilePath from uri: $uri")
 
-        val fd = context.contentResolver.openFileDescriptor(uri, "r")?.fileDescriptor
-            ?: throw IllegalStateException("can not get fd from uri: $uri")
+        val parcelFd = context.contentResolver.openFileDescriptor(uri, "r")
         Thread {
-            val worker = HardwareVideoJobWorker(
-                fd,
-                runOnUi,
-                finishAction,
-                updateProgress,
-                creationTime,
-                totalDurationInMilliseconds,
-                startMills,
-                stopMills,
-                geolocation
-            )
-            val videoTrackIndex = worker.selectTrack()
-            var surface: Surface? = null
-            var surfaceTexture: SurfaceTexture? = null
-            var eglDisplay: EGLDisplay? = null
-            var eglSurface: EGLSurface? = null
-            var eglContext: EGLContext? = null
-            var muxerToRelease: MediaMuxer? = null;
-            var encoderToRelease: MediaCodec? = null
-            var decoderToRelease: MediaCodec? = null
-            try {
-                val startDecoderResult = worker.startDecoder(videoTrackIndex)
-                surface = startDecoderResult.surface
-                surfaceTexture = startDecoderResult.surfaceTexture
-                decoderToRelease = startDecoderResult.decoder
-                worker.checkEncoder()
+            if (parcelFd == null)
+                throw IllegalStateException("can not get fd from uri: $uri")
+            parcelFd.use {
+                val fd = it.fileDescriptor
+                val worker = HardwareVideoJobWorker(
+                    fd,
+                    runOnUi,
+                    finishAction,
+                    updateProgress,
+                    creationTime,
+                    totalDurationInMilliseconds,
+                    startMills,
+                    stopMills,
+                    geolocation
+                )
+                val videoTrackIndex = worker.selectTrack()
+                var surface: Surface? = null
+                var surfaceTexture: SurfaceTexture? = null
+                var eglDisplay: EGLDisplay? = null
+                var eglSurface: EGLSurface? = null
+                var eglContext: EGLContext? = null
+                var muxerToRelease: MediaMuxer? = null
+                var encoderToRelease: MediaCodec? = null
+                var decoderToRelease: MediaCodec? = null
+                try {
+                    val startDecoderResult = worker.startDecoder(videoTrackIndex)
+                    surface = startDecoderResult.surface
+                    surfaceTexture = startDecoderResult.surfaceTexture
+                    decoderToRelease = startDecoderResult.decoder
+                    worker.checkEncoder()
 
-                val (encoder, inputSurface) = worker.startEncoder(
-                    "video/avc"
-                )
-                encoderToRelease = encoder
-                val (neweglContext, neweglSurface, neweglDisplay) = worker.createGLContextForInputSurface(
-                    inputSurface
-                )
-                eglDisplay = neweglDisplay
-                eglSurface = neweglSurface
-                eglContext = neweglContext
-                worker.prepareDrawers()
-                val outputFileFd = outputFile.fileDescriptor
-                val muxer = worker.createMuxer(outputFileFd)
-                muxerToRelease = muxer
-                worker.process(
-                    startDecoderResult.decoder,
-                    encoder,
-                    muxer,
-                    surfaceTexture,
-                    startDecoderResult.externalTextureId,
-                    eglDisplay,
-                    eglSurface
-                )
-            } finally {
-                if (eglDisplay != null && eglSurface != null) {
-                    EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                    val (encoder, inputSurface) = worker.startEncoder(
+                        "video/avc"
+                    )
+                    encoderToRelease = encoder
+                    val (neweglContext, neweglSurface, neweglDisplay) = worker.createGLContextForInputSurface(
+                        inputSurface
+                    )
+                    eglDisplay = neweglDisplay
+                    eglSurface = neweglSurface
+                    eglContext = neweglContext
+                    worker.prepareDrawers()
+                    val outputFileFd = outputFile.fileDescriptor
+                    val muxer = worker.createMuxer(outputFileFd)
+                    muxerToRelease = muxer
+                    worker.process(
+                        startDecoderResult.decoder,
+                        encoder,
+                        muxer,
+                        surfaceTexture,
+                        startDecoderResult.externalTextureId,
+                        eglDisplay,
+                        eglSurface
+                    )
+                } finally {
+                    if (eglDisplay != null) {
+                        EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                        EGL14.eglDestroyContext(eglDisplay, eglContext)
+                    }
+                    surface?.release()
+                    surfaceTexture?.release()
+                    muxerToRelease?.release()
+                    encoderToRelease?.release()
+                    decoderToRelease?.release()
+                    outputFile.close()
                 }
-                if (eglDisplay != null && eglContext != null) {
-                    EGL14.eglDestroyContext(eglDisplay, eglContext)
+                runOnUi {
+                    finishAction("indicted.mp4")
                 }
-                surface?.release()
-                surfaceTexture?.release()
-                muxerToRelease?.release()
-                encoderToRelease?.release();
-                decoderToRelease?.release()
-                outputFile.close()
-            }
-            runOnUi {
-                finishAction("indicted.mp4")
             }
         }.start()
     }

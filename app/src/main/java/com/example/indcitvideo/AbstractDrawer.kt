@@ -9,8 +9,6 @@ import android.opengl.GLUtils
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 abstract class AbstractDrawer : Drawer {
     companion object {
@@ -191,17 +189,17 @@ abstract class AbstractDrawer : Drawer {
             Utils.checkGLError("After set enable vertex attrib for position")
 
             // Pass in the texture coordinate data
-            shaderProgram.texCoordBuffer.position(0)
+            shaderProgram.texCordBuffer.position(0)
             GLES20.glVertexAttribPointer(
-                shaderProgram.texCoordHandle,
+                shaderProgram.texCordHandle,
                 2,
                 GLES20.GL_FLOAT,
                 false,
                 0,
-                shaderProgram.texCoordBuffer
+                shaderProgram.texCordBuffer
             )
             Utils.checkGLError("After set texcoord attrib")
-            GLES20.glEnableVertexAttribArray(shaderProgram.texCoordHandle)
+            GLES20.glEnableVertexAttribArray(shaderProgram.texCordHandle)
             Utils.checkGLError("After enable  texcoord attrib")
 
             // Set the active texture unit to texture unit 0
@@ -228,7 +226,7 @@ abstract class AbstractDrawer : Drawer {
             // Disable vertex array
             GLES20.glDisableVertexAttribArray(shaderProgram.positionHandle)
             Utils.checkGLError("After disable position attrib")
-            GLES20.glDisableVertexAttribArray(shaderProgram.texCoordHandle)
+            GLES20.glDisableVertexAttribArray(shaderProgram.texCordHandle)
             Utils.checkGLError("After disable texcoord attrib")
             GLES20.glBindTexture(shaderProgram.textureTarget, 0)
             Utils.checkGLError("After bind texture ${shaderProgram.textureTarget} to 0")
