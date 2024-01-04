@@ -52,7 +52,30 @@ class MainActivity : ComponentActivity() {
             READ_MEDIA_IMAGES, READ_MEDIA_VIDEO, ACCESS_MEDIA_LOCATION
         )
 
+        private val androidSPermissions = arrayOf(
+            READ_EXTERNAL_STORAGE, ACCESS_MEDIA_LOCATION
+        )
+
         private val androidPreTPermissions = arrayOf(READ_EXTERNAL_STORAGE)
+
+        private val permissionsRequired = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                androidUPermissions
+            }
+
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                androidTPermissions
+            }
+
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                androidSPermissions
+            }
+
+            else -> {
+                androidPreTPermissions
+            }
+        }
+
     }
 
     private val viewModel = FFmpegViewModel()
@@ -157,39 +180,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun hasReadExternalStoragePermission(): Boolean {
-        val permissionsToCheck = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
-                androidUPermissions
-            }
-
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
-                androidTPermissions
-            }
-
-            else -> {
-                androidPreTPermissions
-            }
-        }
-
-        return permissionsToCheck.all { permission ->
+        return permissionsRequired.all { permission ->
             ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
         }
     }
 
     private fun requestReadExternalStoragePermission() {
-
-// Permission request logic
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            requestPermissions.launch(
-                androidUPermissions
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions.launch(
-                androidTPermissions
-            )
-        } else {
-            requestPermissions.launch(androidPreTPermissions)
-        }
+        requestPermissions.launch(permissionsRequired)
     }
 
     private fun openVideoPicker() {
