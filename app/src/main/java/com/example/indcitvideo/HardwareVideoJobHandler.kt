@@ -441,10 +441,10 @@ class HardwareVideoJobWorker(
                         }
                         Utils.checkGLError("After draws ")
                         EGL14.eglSwapBuffers(eglDisplay, eglSurface)
-                        updateCreationTime()
                     } else {
                         decodedFrameCount++
                     }
+                    updateCreationTime()
                 }
                 outIndex = decoder.dequeueOutputBuffer(bufferInfo, timeoutUs)
             }
