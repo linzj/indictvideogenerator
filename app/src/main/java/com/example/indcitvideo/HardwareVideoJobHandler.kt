@@ -46,10 +46,8 @@ class HardwareVideoJobWorker(
     private val runOnUi: (() -> Unit) -> Unit,
     private val finishAction: (String?) -> Unit,
     private val updateProgress: (Float) -> Unit,
-    private val creationTime: Date,
+    private val currentTime: Date,
     private val totalDurationInMilliseconds: Long,
-    private val startMills: Long?,
-    private val stopMills: Long?,
     private val geolocation: Pair<Double, Double>?
 ) {
     private var mFrameAvailable: Boolean = false
@@ -96,7 +94,7 @@ class HardwareVideoJobWorker(
         setDataSource(fileDescriptor)
     }
 
-    fun selectTrack(): Int {
+    fun selectTrack(startMills: Long?): Int {
         var videoTrackIndex = -1
         val numTracks = extractor.trackCount
         for (i in 0 until numTracks) {
@@ -116,6 +114,14 @@ class HardwareVideoJobWorker(
         }
 
         extractor.selectTrack(videoTrackIndex)
+        if (startMills != null) {
+            // Convert milliseconds to microseconds since `seekTo` requires microseconds
+            val seekTimeUs = startMills * 1000L
+
+            // Seek to the specified time position
+            // Use SEEK_TO_CLOSEST_SYNC to seek to the nearest sync frame which may be before or after the requested time
+            extractor.seekTo(seekTimeUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+        }
         return videoTrackIndex
     }
 
@@ -330,7 +336,7 @@ class HardwareVideoJobWorker(
 
     fun prepareDrawers() {
         videoTextureDrawer = VideoTextureDrawer()
-        val dateTimeDrawer = DateTimeDrawer(creationTime, bottomLineAccount, width, height)
+        val dateTimeDrawer = DateTimeDrawer(currentTime, bottomLineAccount, width, height)
         drawers = arrayOf(videoTextureDrawer, dateTimeDrawer)
         if (geolocation != null) {
             val geolocationDrawer =
@@ -344,10 +350,10 @@ class HardwareVideoJobWorker(
     private fun updateCreationTime() {
         // Increase the creation time by the time per frame
         val timePerFrameMs = (1000 / frameRate).toLong()
-        val newCreationTime = Date(creationTime.time + timePerFrameMs)
+        val newCreationTime = Date(currentTime.time + timePerFrameMs)
 
         // Update the creation time
-        creationTime.time = newCreationTime.time
+        currentTime.time = newCreationTime.time
     }
 
     private fun awaitNewImage() {
@@ -389,8 +395,6 @@ class HardwareVideoJobWorker(
         // Create a queue to hold the presentation time stamps
         val ptsQueue: LinkedList<Long> = LinkedList()
         val targetFrames = (frameRate / 1000f * totalDurationInMilliseconds)
-        val startFrame = startMills?.let { frameRate / 1000f * it }
-        val stopFrame = stopMills?.let { frameRate / 1000f * it }
 
         while (!isEOS) {
             // Extract and decode frames from the extractor
@@ -413,8 +417,7 @@ class HardwareVideoJobWorker(
             var outIndex: Int = decoder.dequeueOutputBuffer(bufferInfo, timeoutUs)
             while (outIndex != MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (outIndex >= 0) {
-                    val doRender =
-                        bufferInfo.size != 0 && (startFrame == null || decodedFrameCount >= startFrame)
+                    val doRender = bufferInfo.size != 0
                     decoder.releaseOutputBuffer(outIndex, doRender)
                     if (doRender) {
                         awaitNewImage()
@@ -449,7 +452,7 @@ class HardwareVideoJobWorker(
                 outIndex = decoder.dequeueOutputBuffer(bufferInfo, timeoutUs)
             }
             // Check if current decoded frame has reach stopFrame or EOS
-            if (stopFrame != null && decodedFrameCount >= stopFrame)
+            if (decodedFrameCount >= targetFrames)
                 isEOS = true
             // Handle other cases like output format change, etc.
             if (isEOS) {
@@ -531,7 +534,7 @@ class HardwareVideoJobHandler : VideoJobHandler {
         // Extract creation time first or fd may lead to interference between MediaMetadataRetriever
         // and MediaExtractor
         val retriever = MediaMetadataRetriever()
-        val creationTime: Date
+        val currentTime: Date
         var totalDurationInMilliseconds: Long
 
         retriever.use { retrieverInUse ->
@@ -540,11 +543,12 @@ class HardwareVideoJobHandler : VideoJobHandler {
                 retrieverInUse.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE) ?: ""
             val dateFormat = SimpleDateFormat("yyyyMMdd'T'HHmmss.SSS'Z'", Locale.US)
             dateFormat.timeZone = TimeZone.getTimeZone("UTC")
-            creationTime = dateFormat.parse(creationTimeString)
+            currentTime = dateFormat.parse(creationTimeString)
                 ?: throw IllegalStateException("unable to parse $creationTimeString")
             totalDurationInMilliseconds =
                 retrieverInUse.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull() ?: 0L
+            currentTime.time -= totalDurationInMilliseconds;
         }
 
         val geolocation = Utils.extractGpsLocationFromMp4(context, uri)
@@ -554,6 +558,11 @@ class HardwareVideoJobHandler : VideoJobHandler {
 
         val startMills = Utils.timeStringToMills(startTime)
         val stopMills = Utils.timeStringToMills(stopTime)
+
+        // Adjust currentTime according to startMills.
+        if (startMills != null) {
+            currentTime.time += startMills
+        }
 
         val outputFile = Utils.buildOutputFile(context, uri)
             ?: throw IllegalStateException("can not get outputFilePath from uri: $uri")
@@ -569,13 +578,11 @@ class HardwareVideoJobHandler : VideoJobHandler {
                     runOnUi,
                     finishAction,
                     updateProgress,
-                    creationTime,
+                    currentTime,
                     totalDurationInMilliseconds,
-                    startMills,
-                    stopMills,
                     geolocation
                 )
-                val videoTrackIndex = worker.selectTrack()
+                val videoTrackIndex = worker.selectTrack(startMills)
                 var surface: Surface? = null
                 var surfaceTexture: SurfaceTexture? = null
                 var eglDisplay: EGLDisplay? = null
